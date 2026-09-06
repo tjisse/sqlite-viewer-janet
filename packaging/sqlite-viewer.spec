@@ -65,6 +65,7 @@ if [ "$1" -ge 1 ]; then
 fi
 
 %files
+%defattr(0644,root,root,0755)
 %attr(0755,root,root) /usr/bin/sqlite-viewer
 /usr/lib/sqlite-viewer
 /usr/lib/systemd/system/sqlite-viewer.service

@@ -30,6 +30,7 @@ jobs:
           bash scripts/ci-build.sh
           bash scripts/test.sh
           bash scripts/rpm.sh
+          python3 tests/package.py dist/sqlite-viewer-0.1.0-1.x86_64.rpm
       - name: Import signing key and sign RPM
         env:
           SIGNING_KEY: ${{ secrets.RPM_GPG_PRIVATE_KEY }}
