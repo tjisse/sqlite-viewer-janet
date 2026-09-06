@@ -266,11 +266,16 @@ One-time maintainer setup:
    remain enabled in the `.repo` file. Update the package/version fields before
    making a new version tag; do not overwrite an existing released RPM.
 
-The signing job deliberately requires maintainer credentials; it never falls
-back to `gpgcheck=0`. Local deliverables are unsigned for inspection and require
-your release key before distribution as a trusted repository. `repository.sh`
-can generate unsigned metadata locally without a key for inspection, but the
-generated secure `.repo` intentionally cannot install from that unsigned snapshot.
+The original repository has a dedicated signing key configured in Actions and
+publishes signed releases. Its fingerprint is
+`91ED 8184 134F 2AAD B0DD 1BCB 497D 7F47 0CE7 6057` (expires 2028-09-05).
+The public key is also committed under `packaging/`. Fork maintainers must
+provision their own key; private signing material is never committed. The signing
+job never falls back to `gpgcheck=0`. Ordinary local `scripts/rpm.sh` builds remain
+unsigned until explicitly signed. `repository.sh` can generate unsigned metadata
+without a key for inspection, but the secure `.repo` intentionally cannot install
+from an unsigned snapshot. Back up signing keys securely and plan rotation before
+expiry; update the committed public key, Actions secret and fingerprint together.
 
 If publication fails after creating a release, keep that release immutable:
 rerun just the metadata/deploy steps against the already-signed release assets

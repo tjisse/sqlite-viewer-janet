@@ -38,7 +38,10 @@ jobs:
         run: |
           test -n "$SIGNING_KEY" && test -n "$RPM_SIGNING_KEY"
           printf '%s' "$SIGNING_KEY" | gpg --batch --import
-          rpmsign --define "_gpg_name $RPM_SIGNING_KEY" --define '_gpg_path /home/runner/.gnupg' --addsign dist/*.rpm
+          rpmsign --define '__gpg /usr/bin/gpg' --define "_gpg_name $RPM_SIGNING_KEY" --define '_gpg_path /home/runner/.gnupg' --addsign dist/*.rpm
+          mkdir -p "$RUNNER_TEMP/rpm-verify"
+          rpmkeys --dbpath "$RUNNER_TEMP/rpm-verify" --import packaging/RPM-GPG-KEY-sqlite-viewer
+          rpmkeys --dbpath "$RUNNER_TEMP/rpm-verify" --checksig dist/*.rpm
       - name: Publish immutable release and gather all release RPMs
         env:
           GH_TOKEN: ${{ github.token }}
