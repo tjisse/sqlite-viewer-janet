@@ -1,0 +1,7 @@
+.build/
+dist/
+*.sqlite*
+*.pem
+*.token
+.env
+__pycache__/

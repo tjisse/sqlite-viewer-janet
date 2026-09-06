@@ -1,0 +1,63 @@
+name: Publish signed RPM repository
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tested release tag (for example v0.1.0)'
+        required: true
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: rpm-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: github-pages
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake pkg-config libssl-dev rpm createrepo-c python3-cryptography gnupg
+      - name: Build and test tagged source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JWT_SOURCE_SSH_KEY: ${{ secrets.JWT_SOURCE_SSH_KEY }}
+        run: |
+          bash scripts/ci-build.sh
+          bash scripts/test.sh
+          bash scripts/rpm.sh
+      - name: Import signing key and sign RPM
+        env:
+          SIGNING_KEY: ${{ secrets.RPM_GPG_PRIVATE_KEY }}
+          RPM_SIGNING_KEY: ${{ vars.RPM_SIGNING_KEY }}
+        run: |
+          test -n "$SIGNING_KEY" && test -n "$RPM_SIGNING_KEY"
+          printf '%s' "$SIGNING_KEY" | gpg --batch --import
+          rpmsign --define "_gpg_name $RPM_SIGNING_KEY" --define '_gpg_path /home/runner/.gnupg' --addsign dist/*.rpm
+      - name: Publish immutable release and gather all release RPMs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          gh release create "$RELEASE_TAG" dist/*.rpm --verify-tag --title "SQLite Viewer $RELEASE_TAG" --generate-notes
+          mkdir -p packages site/rpm
+          gh release list --limit 100 --json tagName,isDraft,isPrerelease --jq '.[] | select(.isDraft == false and .isPrerelease == false) | .tagName' |
+          while IFS= read -r tag; do
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+            mkdir -p "packages/$tag"
+            gh release download "$tag" --pattern '*.rpm' --dir "packages/$tag"
+          done
+      - name: Generate and sign repository metadata
+        env:
+          RPM_SIGNING_KEY: ${{ vars.RPM_SIGNING_KEY }}
+        run: bash scripts/repository.sh "$GITHUB_REPOSITORY" packages site/rpm
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4

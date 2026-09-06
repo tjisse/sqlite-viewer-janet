@@ -1,0 +1,35 @@
+[Unit]
+Description=SQLite Viewer
+After=network.target
+ConditionPathExists=/etc/sqlite-viewer/viewer.env
+
+[Service]
+Type=simple
+User=sqlite-viewer
+Group=sqlite-viewer
+EnvironmentFile=/etc/sqlite-viewer/viewer.env
+ExecStart=/usr/bin/sqlite-viewer
+WorkingDirectory=/var/lib/sqlite-viewer
+StateDirectory=sqlite-viewer
+StateDirectoryMode=0750
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+LockPersonality=yes
+UMask=0027
+MemoryMax=512M
+TasksMax=64
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target
