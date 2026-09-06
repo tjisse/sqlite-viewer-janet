@@ -7,7 +7,7 @@ import sys
 package = Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory() as db:
     args = ['rpm', '--dbpath', db]
-    subprocess.run([*args, '-K', '--nosignature', str(package)], check=True)
+    subprocess.run(['rpmkeys', '--dbpath', db, '--checksig', '--nosignature', str(package)], check=True)
     listing = subprocess.check_output([*args, '-qp', '--qf',
         '[%{FILENAMES}\t%{FILEMODES:octal}\t%{FILEUSERNAME}\n]', str(package)], text=True)
     files = {}
