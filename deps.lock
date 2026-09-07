@@ -1,8 +1,9 @@
 # name repository exact-commit
 janet https://github.com/janet-lang/janet 587468d3f4d0ff0cc88713d9f6788af27c28c264
+jpm https://github.com/janet-lang/jpm 2430dec269f485473502bcdc2049ee332bc63908
 datastar-janet https://github.com/tjisse/datastar-janet ed228edf0b3db8826711f94eee3b179937596a41
 janet-jwt https://github.com/tjisse/janet-jwt 4f41a292955149817dc7277e108b4f6f17ee5910
-sqlite3 https://github.com/tjisse/sqlite3 f3c6f4baf3a55e89daef03c1d36239315fbe4aff
+sqlite3 https://github.com/tjisse/sqlite3 cf01247243ecddad3ee3370b1eee4d1a077ddb18
 spork https://github.com/janet-lang/spork 2d4638cfb843589485dde75ab79c1eda7ccd1f46
 jayson https://github.com/CFiggers/jayson 4f54041617340c8ff99bc1e6b285b720184965e2
 judge https://github.com/ianthehenry/judge 612c3f41bbb75649515d6b0bdcf6116419030fa6

@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory() as db:
     assert files['/usr/bin/sqlite-viewer'] == 0o755
     assert files['/etc/sqlite-viewer/viewer.env'] == 0o640
     assert '/usr/lib/systemd/system/sqlite-viewer.service' in files
-    assert '/usr/lib/sqlite-viewer/modules/sqlite3.so' in files
-    assert '/usr/lib/sqlite-viewer/modules/jwt.so' in files
+    assert not any(p.startswith('/usr/lib/sqlite-viewer') for p in files)
+    assert not any(p.endswith(('.so', '.janet', '.c', '.h')) for p in files)
     assert not any(p.endswith(('.pem', '.key', '.sqlite')) for p in files)
     print(f'Passed package digest, ownership, permission and layout checks ({len(files)} entries)')

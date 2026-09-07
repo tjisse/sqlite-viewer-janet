@@ -3,6 +3,7 @@ import base64
 import http.client
 import json
 import os
+import shutil
 from pathlib import Path
 import socket
 import sqlite3
@@ -24,8 +25,13 @@ class Viewer(unittest.TestCase):
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory()
         cls.path = Path(cls.temp.name)
+        # Run only a copied executable, from an unrelated directory. No source,
+        # asset directory, installed Janet, or native module tree is available.
+        cls.binary = cls.path / 'sqlite-viewer'
+        shutil.copy2(BINARY, cls.binary)
         cls.database = cls.path / 'demo.sqlite'
-        subprocess.run([BINARY, '--seed', cls.database], check=True, capture_output=True)
+        subprocess.run([cls.binary, '--seed', cls.database], cwd=cls.path,
+                       check=True, capture_output=True)
         cls.key = Ed25519PrivateKey.generate()
         jwks = {'keys': [{'kty':'OKP', 'crv':'Ed25519', 'kid':'test', 'alg':'EdDSA',
                          'x':b64(cls.key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))}]}
@@ -34,11 +40,11 @@ class Viewer(unittest.TestCase):
         with socket.socket() as sock:
             sock.bind(('127.0.0.1',0)); cls.port = sock.getsockname()[1]
         cls.origin = f'http://127.0.0.1:{cls.port}'
-        env = dict(os.environ, SV_PORT=str(cls.port), SV_HOST='127.0.0.1', SV_ALLOW_HTTP='1',
+        env = dict(os.environ, JANET_PATH=str(cls.path/'no-modules'), SV_PORT=str(cls.port), SV_HOST='127.0.0.1', SV_ALLOW_HTTP='1',
                    SV_ORIGIN=cls.origin, SV_ISSUER='https://issuer.test', SV_AUDIENCE='sqlite-viewer',
                    SV_JWKS=str(cls.path/'jwks.json'), SV_DATABASES=str(cls.path/'databases.json'))
         cls.log = (cls.path/'server.log').open('w+')
-        cls.server = subprocess.Popen([BINARY], env=env, stdout=cls.log, stderr=cls.log)
+        cls.server = subprocess.Popen([cls.binary], cwd=cls.path, env=env, stdout=cls.log, stderr=cls.log)
         for _ in range(100):
             try:
                 if cls.request('/healthz', authenticated=False)[0] == 200: break
@@ -48,6 +54,9 @@ class Viewer(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        if cls.server.poll() is not None:
+            cls.log.seek(0)
+            print(f'Server exited unexpectedly ({cls.server.returncode}):\n{cls.log.read()}')
         cls.server.terminate(); cls.server.wait(timeout=5); cls.log.close(); cls.temp.cleanup()
 
     @classmethod
@@ -76,6 +85,12 @@ class Viewer(unittest.TestCase):
         self.assertEqual(403,self.request('/',headers={'Authorization':'Bearer '+self.token(databases=['Other'])})[0])
         self.assertEqual(403,self.request('/?db=secret')[0])
         self.assertEqual(403,self.request('/',headers={'Host':'evil.test'})[0])
+
+    def test_embedded_assets(self):
+        for name in ['app.css', 'app.js', 'datastar.js', 'icon.svg']:
+            status, _, body = self.request('/assets/'+name, authenticated=False)
+            self.assertEqual(200, status)
+            self.assertEqual((ROOT/'assets'/name).read_text(), body)
 
     def test_session_and_csrf(self):
         payload=urllib.parse.urlencode({'token':self.token()})

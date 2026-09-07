@@ -1,12 +1,12 @@
 %global debug_package %{nil}
 %global _build_id_links none
 Name: sqlite-viewer
-Version: 0.1.0
+Version: 0.2.0
 Release: 1
 Summary: Reactive read-only SQLite browser built in Janet
 License: MIT AND MPL-2.0
 URL: https://github.com/tjisse/sqlite-viewer-janet
-Source0: sqlite-viewer-0.1.0-runtime.tar.gz
+Source0: sqlite-viewer-0.2.0-runtime.tar.gz
 BuildArch: x86_64
 Requires: glibc >= 2.38
 Requires: openssl-libs >= 3.0
@@ -31,18 +31,16 @@ separate build against its older glibc. No database or private keys are bundled.
 # The runtime payload is built and tested from deps.lock before packaging.
 
 %install
-mkdir -p %{buildroot}/usr/bin %{buildroot}/usr/lib/sqlite-viewer
+mkdir -p %{buildroot}/usr/bin
 mkdir -p %{buildroot}/usr/share/licenses/sqlite-viewer %{buildroot}/usr/share/doc/sqlite-viewer
 mkdir -p %{buildroot}/usr/lib/systemd/system %{buildroot}/usr/lib/sysusers.d
 mkdir -p %{buildroot}/etc/sqlite-viewer %{buildroot}/var/lib/sqlite-viewer
 cp -a bin/sqlite-viewer %{buildroot}/usr/bin/
-cp -a lib/sqlite-viewer/. %{buildroot}/usr/lib/sqlite-viewer/
 cp -a share/licenses/. %{buildroot}/usr/share/licenses/sqlite-viewer/
 cp README.md %{buildroot}/usr/share/doc/sqlite-viewer/
 cp packaging/sqlite-viewer.service %{buildroot}/usr/lib/systemd/system/
 cp packaging/sqlite-viewer.sysusers %{buildroot}/usr/lib/sysusers.d/sqlite-viewer.conf
 cp packaging/viewer.env packaging/databases.json %{buildroot}/etc/sqlite-viewer/
-find %{buildroot}/usr/lib/sqlite-viewer -type f -exec chmod 0644 {} +
 chmod 0755 %{buildroot}/usr/bin/sqlite-viewer
 
 %pre
@@ -67,7 +65,6 @@ fi
 %files
 %defattr(0644,root,root,0755)
 %attr(0755,root,root) /usr/bin/sqlite-viewer
-/usr/lib/sqlite-viewer
 /usr/lib/systemd/system/sqlite-viewer.service
 /usr/lib/sysusers.d/sqlite-viewer.conf
 %license /usr/share/licenses/sqlite-viewer
@@ -78,5 +75,8 @@ fi
 %dir %attr(0750,sqlite-viewer,sqlite-viewer) /var/lib/sqlite-viewer
 
 %changelog
+* Mon Sep 07 2026 SQLite Viewer contributors - 0.2.0-1
+- Bundle Janet code, native bindings and browser assets into one executable.
+- Move query controls to the SQLite binding; keep viewer policy in Janet.
 * Sun Sep 06 2026 SQLite Viewer contributors - 0.1.0-1
 - Initial reactive Janet SQLite viewer.

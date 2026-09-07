@@ -22,14 +22,14 @@ jobs:
       - name: Package RPM
         run: bash scripts/rpm.sh
       - name: Verify RPM permissions and contents
-        run: python3 tests/package.py dist/sqlite-viewer-0.1.0-1.x86_64.rpm
+        run: python3 tests/package.py dist/sqlite-viewer-0.2.0-1.x86_64.rpm
       - uses: actions/upload-artifact@v4
         with:
           name: sqlite-viewer-x86_64
           path: dist/*.rpm
           if-no-files-found: error
       - name: Runtime archive
-        run: tar -czf sqlite-viewer-linux-x86_64.tar.gz -C dist bin lib share
+        run: tar -czf sqlite-viewer-linux-x86_64.tar.gz -C dist bin share
       - uses: actions/upload-artifact@v4
         with:
           name: sqlite-viewer-runtime

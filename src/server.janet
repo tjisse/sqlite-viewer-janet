@@ -8,6 +8,7 @@
 (import ui)
 (import watch)
 (import seed)
+(import assets)
 
 (def databases @{})
 (var verifier nil)
@@ -110,7 +111,7 @@
   (unless (= authority (get-in req [:headers "host"]))
     (break (response 403 "Host rejected" "text/plain")))
   (when (and (= method "GET") (index-of path ["/assets/app.css" "/assets/app.js" "/assets/datastar.js" "/assets/icon.svg"]))
-    (break (response 200 (slurp (string (os/getenv "SV_APP_DIR") path))
+    (break (response 200 (assets/files path)
                      (cond (string/has-suffix? ".css" path) "text/css" (string/has-suffix? ".svg" path) "image/svg+xml" "text/javascript"))))
   (when (= path "/session")
     (unless (= method "POST") (break (response 405 "Method not allowed" "text/plain")))
@@ -158,9 +159,8 @@
   (if (first result) (result 1) (response 400 "Request could not be processed. Check the table, query, and request format." "text/plain")))
 
 (defn main [args]
-  (when (= "--version" (get args 1)) (print "sqlite-viewer 0.1.0") (break nil))
+  (when (= "--version" (get args 1)) (print "sqlite-viewer 0.2.0") (break nil))
   (when (= "--seed" (get args 1)) (seed/create (get args 2 "demo.sqlite")) (break nil))
-  (when (= "--test" (get args 1)) (dofile (get args 2)) (break nil))
   (set demo (= "--demo" (get args 1)))
   (def host (os/getenv "SV_HOST" "127.0.0.1"))
   (def port (db/integer (os/getenv "SV_PORT") 8080 1024 65535))

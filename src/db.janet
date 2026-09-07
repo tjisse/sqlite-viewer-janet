@@ -1,11 +1,12 @@
 (import sqlite3 :as sql)
 (import watch)
+(import query :as bounded)
 
 (defn quote-id [name]
   (string "\"" (string/replace-all "\"" "\"\"" name) "\""))
 
 (defn query [database statement &opt params cap]
-  (sql/safe-query (database :db) statement (or params []) (or cap 201)))
+  (bounded/run (database :db) statement params cap))
 
 (defn tables [database]
   ((query database "SELECT name, type FROM sqlite_schema WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name" [] 1001) :rows))
@@ -72,5 +73,5 @@
   result)
 
 (defn open [name path]
-  (def connection (sql/readonly-open path))
+  (def connection (bounded/open path))
   @{:name name :db connection :watch (watch/attach connection)})

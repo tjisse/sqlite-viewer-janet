@@ -2,5 +2,5 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 bash scripts/format.sh --check
-dist/bin/sqlite-viewer --test tests/core.janet
+.build/jpm/sqlite-viewer-tests
 python3 tests/integration.py

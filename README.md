@@ -46,28 +46,35 @@ this build access.
 Public/fork PRs deliberately do not run secret-bearing builds.
 
 Already have the runtime archive? Extract it and run `bin/sqlite-viewer --demo`.
-Keep its `bin/`, `lib/` and `share/` layout intact. The executable embeds Janet;
-its application modules and assets live beside it under `lib/sqlite-viewer`.
-SQLite, Jansson and libjwt are bundled; OpenSSL and glibc remain system libraries.
+The executable is independently relocatable: Janet, application bytecode, SQLite,
+native bindings, Jansson, libjwt and all web assets are embedded. There is no
+runtime module directory or installed Janet requirement. Retain `share/` when
+redistributing the archive for its license notices. OpenSSL, glibc and libm remain
+system libraries: this is a bundled executable, not a fully static libc binary.
 The x86_64 artifact requires glibc 2.38+ and OpenSSL 3.0+, suitable for Fedora
 40+ (use a currently supported Fedora release). It is **not an EL9 binary**.
 
 ## Development and tests
 
-Most application changes are in `src/*.janet`; styling and small browser
-enhancements are in `assets/`. `src/sqlite-guard.c` extends the pinned binding
-without editing it. `src/main.c` is only a Janet launcher. Build output is `dist/`.
+Application code is in `src/*.janet`; styling and small browser enhancements are
+in `assets/`. There are no handwritten C files in this repository. JPM's
+`declare-executable` builds `src/main.janet`; `project.janet` declares the native
+dependencies using their own source files. JPM-generated C and intermediate
+native modules stay in `.build/` and are not shipped. The public SQLite controls
+live in `tjisse/sqlite3`; viewer-specific authorization and budgets live in
+`src/query.janet`. Build output is `dist/bin/sqlite-viewer` and license notices.
 No web routes allow file upload, database mutation, or changing trusted config.
 
-For rapid Janet/UI changes after the first build:
+After changing Janet code or web assets, rebuild the embedded image:
 
 ```sh
-cp src/*.janet dist/lib/sqlite-viewer/
-cp assets/* dist/lib/sqlite-viewer/assets/
+bash scripts/format.sh
+bash scripts/build.sh
+bash scripts/test.sh
 dist/bin/sqlite-viewer --demo
 ```
 
-Restart after server/module changes; refresh the browser after asset changes.
+Restart the executable after rebuilding; refresh the browser after asset changes.
 `SV_PORT=8765` changes the development port. To create a standalone sample:
 
 ```sh
@@ -79,6 +86,11 @@ checks and Python integration tests using temporary databases and newly generate
 Ed25519 keys. Tests exercise JWT failures, database grants, session cookies,
 origin checks, query restrictions/budgets, escaping, 64-bit integer preservation,
 commit/rollback hooks, views/search/sort/filter/export, and SSE external commits.
+The core suite is a separate build-only Janet executable, not a production
+`--test` command. Integration tests run a copied service executable in an isolated
+directory and verify embedded assets, auth, SQL and subscriptions without modules
+or source files beside it. The entry point handles SIGPIPE so disconnected SSE
+clients cannot terminate the service.
 Tests need a local TCP listener; production does not need Python.
 
 ## Authentication and authorization
@@ -149,8 +161,10 @@ database and any WAL/SHM files. A WAL database may need an already-created reada
 SHM file; arrange permissions with its writer. Do not use `immutable=1` for live
 databases. Replacing the database file itself requires restarting the viewer.
 
-The binding is pinned to **`change-tracking-hooks` commit `f3c6f4b`**, including the
-reviewed garbage-collection, veto and statement-cleanup fixes. `watch.janet`
+The binding is pinned to **`query-controls` commit `cf01247`**, based on your
+`change-tracking-hooks` work and including the reviewed garbage-collection, veto
+and statement-cleanup fixes. Its general `query`, `config`, `limit`, read-only
+opening and busy-timeout APIs replace the application's former C adapter. `watch.janet`
 registers `update-hook`, `commit-hook`, and `rollback-hook`. Callbacks only record
 invalidation; they never execute SQL, publish SSE, or yield. `watch/eval!` publishes
 after the SQLite call returns. Rollbacks discard pending changes. Commit-level
@@ -182,8 +196,9 @@ SQL permits one read-only statement, including CTEs, with a SQLite authorizer
 blocking writes, ATTACH, unsafe PRAGMAs, and extension/file functions. It is not a
 keyword-prefix filter. Queries have a 250 ms / approximately 2 million VM
 instruction budget, 16 KiB SQL length limit, 4 MiB result budget, and 200 displayed
-rows. Individual values are capped at 1 MiB on production connections. The C
-adapter finalizes statements and clears progress handlers on failures. Integers
+rows. Individual values are capped at 1 MiB on production connections. The binding
+finalizes statements and clears query-scoped callbacks on failures. The Janet
+policy sets the authorizer, progress callback, and resource limits. Integers
 are displayed losslessly as decimal strings; BLOBs are labeled without decoding.
 
 Search is case-insensitive SQLite `lower()`/substring search across columns;
@@ -207,7 +222,7 @@ between SQLite VM operations, not a hard process-level deadline for every builti
 ```sh
 bash scripts/rpm.sh
 # Local artifact has no maintainer signature yet. Verify its supplied SHA256.
-sudo dnf install ./dist/sqlite-viewer-0.1.0-1.x86_64.rpm
+sudo dnf install ./dist/sqlite-viewer-0.2.0-1.x86_64.rpm
 ```
 
 Package layout:
@@ -215,7 +230,6 @@ Package layout:
 | Path | Contents |
 |---|---|
 | `/usr/bin/sqlite-viewer` | Janet service executable |
-| `/usr/lib/sqlite-viewer` | Application, native modules, browser assets |
 | `/etc/sqlite-viewer` | Root-managed auth/database configuration |
 | `/var/lib/sqlite-viewer` | Service-owned persistent state/sample database |
 | `/usr/lib/systemd/system/sqlite-viewer.service` | Hardened unit |
@@ -259,7 +273,7 @@ One-time maintainer setup:
    noninteractive workflow expects a dedicated unencrypted CI key protected by
    Actions secrets/environment controls; use a hardware/KMS signing workflow if
    that is your policy. Publish/verify its fingerprint out of band.
-4. Push a matching version tag (initially `v0.1.0`), let Build and test pass, then
+4. Push a matching version tag (currently `v0.2.0`), let Build and test pass, then
    run **Publish signed RPM repository** with that tag. Publication rebuilds/tests,
    signs the RPM, creates a release, regenerates metadata with retained release
    RPMs, signs `repomd.xml`, and deploys Pages. Both RPM and metadata verification

@@ -30,9 +30,9 @@
 
 (defn eval! [state statement &opt params]
   (def result (protect (if params
-                         (sql/eval-one (state :db) statement params)
-                         (sql/eval-one (state :db) statement))))
-  # eval-one prohibits multi-statements; a failed COMMIT invokes rollback-hook.
+                         (sql/query (state :db) statement params)
+                         (sql/query (state :db) statement))))
+  # query prohibits multi-statements; a failed COMMIT invokes rollback-hook.
   (publish! state)
   (unless (first result) (error (result 1)))
   (result 1))
