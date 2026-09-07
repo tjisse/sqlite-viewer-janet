@@ -1,0 +1,13 @@
+name: Published RPM install test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install, run, reinstall, and remove published RPM on Fedora
+        run: docker run --rm -v "$PWD:/source:ro" fedora:latest bash /source/tests/install-rpm.sh

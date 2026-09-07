@@ -306,6 +306,24 @@ modified config (`.rpmsave` where applicable), and the system account. Review an
 remove those retained files/account manually if no longer needed; the package
 never deletes your data. Remove the `.repo` file separately to stop update checks.
 
+## Published-package smoke test
+
+Run the **Published RPM install test** workflow manually after publishing a release.
+It uses a disposable current Fedora container to install through the public signed
+repository, check installed files and the systemd unit, serve the demo as the
+service account, reinstall, and remove the package. It verifies that the database,
+modified configuration, and service account survive removal. It needs no private
+dependency credentials. To run locally with Docker:
+
+```sh
+docker run --rm -v "$PWD:/source:ro" fedora:latest bash /source/tests/install-rpm.sh
+```
+
+This checks the unit definition but does not boot systemd in the container;
+service startup and hardening still need validation on the deployment host.
+Reinstall exercises package replacement; cross-version upgrade/downgrade needs
+two published versions and cannot yet be tested with only the initial release.
+
 ## License and provenance
 
 Application code is MIT. Runtime dependencies retain their upstream licenses,
