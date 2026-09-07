@@ -347,7 +347,8 @@ blank lines between functions and break complex expressions into readable lines.
 Run the **Published RPM install test** workflow manually after publishing a release.
 It uses a disposable current Fedora container to install through the public signed
 repository, check installed files and the systemd unit, serve the demo as the
-service account, reinstall, and remove the package. It verifies that the database,
+service account, downgrade to retained v0.1.0, upgrade to the current release,
+reinstall, and remove the package. It verifies that the database,
 modified configuration, and service account survive removal. It needs no private
 dependency credentials. To run locally with Docker:
 
@@ -357,8 +358,9 @@ docker run --rm -v "$PWD:/source:ro" fedora:latest bash /source/tests/install-rp
 
 This checks the unit definition but does not boot systemd in the container;
 service startup and hardening still need validation on the deployment host.
-Reinstall exercises package replacement; cross-version upgrade/downgrade needs
-two published versions and cannot yet be tested with only the initial release.
+Run this version of the test after publishing v0.2.0 or later. It also verifies
+that upgrading removes the old `/usr/lib/sqlite-viewer` module directory, while
+downgrading restores it; configuration and database contents survive both.
 
 ## License and provenance
 
