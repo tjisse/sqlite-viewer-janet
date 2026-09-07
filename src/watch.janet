@@ -2,21 +2,22 @@
 
 # Hooks only record invalidation. Never run SQL, send SSE, or yield from them.
 # A commit callback runs BEFORE durability. publish! is called after eval returns.
+
 (defn attach [db]
   (def state @{:db db :pending @{} :committed @{} :all? false :version 0})
   (sql/update-hook db (fn [op database table rowid]
-    (put (state :pending) table true) nil))
+                        (put (state :pending) table true) nil))
   (sql/commit-hook db (fn []
-    (eachk table (state :pending) (put (state :committed) table true))
-    (table/clear (state :pending))
-    # Covers DDL, WITHOUT ROWID and DELETE truncation, which update-hook misses.
-    (put state :all? true)
-    nil))
+                        (eachk table (state :pending) (put (state :committed) table true))
+                        (table/clear (state :pending))
+                        # Covers DDL, WITHOUT ROWID and DELETE truncation, which update-hook misses.
+                        (put state :all? true)
+                        nil))
   (sql/rollback-hook db (fn []
-    (table/clear (state :pending))
-    (table/clear (state :committed))
-    (put state :all? false)
-    nil))
+                          (table/clear (state :pending))
+                          (table/clear (state :committed))
+                          (put state :all? false)
+                          nil))
   (put state :external ((first (sql/eval db "PRAGMA data_version")) :data_version))
   state)
 
@@ -29,8 +30,8 @@
 
 (defn eval! [state statement &opt params]
   (def result (protect (if params
-    (sql/eval-one (state :db) statement params)
-    (sql/eval-one (state :db) statement))))
+                         (sql/eval-one (state :db) statement params)
+                         (sql/eval-one (state :db) statement))))
   # eval-one prohibits multi-statements; a failed COMMIT invokes rollback-hook.
   (publish! state)
   (unless (first result) (error (result 1)))

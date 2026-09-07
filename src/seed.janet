@@ -1,7 +1,9 @@
 (import sqlite3 :as sql)
+
 (defn script [conn text]
   (each statement (string/split ";" text)
     (unless (empty? (string/trim statement)) (sql/eval conn statement))))
+
 (defn create [path]
   (when (os/stat path) (error "Seed destination already exists; refusing to overwrite"))
   (def conn (sql/open path))
@@ -19,8 +21,8 @@
     (loop [i :range [1 241]]
       (def name (names (% (dec i) (length names))))
       (sql/eval conn "INSERT INTO customers VALUES(?,?,?,?,?,?,?)"
-        [i name (string "member" i "@example.com") ((if (= 0 (% i 4)) ["Enterprise"] ["Pro" "Free" "Pro"]) (% i (if (= 0 (% i 4)) 1 3)))
-          (if (= 0 (% i 7)) "Invited" "Active") (["Netherlands" "Sweden" "Japan" "United States" "Germany" "France"] (% i 6)) (string "2026-08-" (string/format "%02d" (inc (% i 28))))])
+                [i name (string "member" i "@example.com") ((if (= 0 (% i 4)) ["Enterprise"] ["Pro" "Free" "Pro"]) (% i (if (= 0 (% i 4)) 1 3)))
+                 (if (= 0 (% i 7)) "Invited" "Active") (["Netherlands" "Sweden" "Japan" "United States" "Germany" "France"] (% i 6)) (string "2026-08-" (string/format "%02d" (inc (% i 28))))])
       (sql/eval conn "INSERT INTO orders VALUES(?,?,?,?,?,?)" [i i "Workspace subscription" (* 9.5 (inc (% i 5))) "Paid" "2026-09-01"]))
     (script conn `INSERT INTO products VALUES(1,'Personal workspace','Subscription',9.5,1000),(2,'Team workspace','Subscription',29,500),(3,'Enterprise workspace','Subscription',99,100);
       INSERT INTO activity VALUES(1,'Demo database created','2026-09-06'); COMMIT;`))

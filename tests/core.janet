@@ -4,6 +4,7 @@
 (import ui)
 (import auth)
 (def checks @[0])
+
 (defn check [value message]
   (unless value (error (string "FAIL: " message)))
   (put checks 0 (inc (checks 0))))

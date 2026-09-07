@@ -306,6 +306,28 @@ modified config (`.rpmsave` where applicable), and the system account. Review an
 remove those retained files/account manually if no longer needed; the package
 never deletes your data. Remove the `.repo` file separately to stop update checks.
 
+## Janet formatting
+
+Keep a blank line between top-level functions and between logical sections.
+Use Spork's `janet-format` command:
+
+```sh
+bash scripts/format.sh          # Format first-party Janet files in place
+bash scripts/format.sh --check  # Check without modifying files
+```
+
+Run the build first to fetch the pinned Janet and Spork tools. If using an external
+dependency directory, pass the same `SV_DEPS_DIR` as the build. The wrapper uses
+the Spork revision in `deps.lock`, not an arbitrary globally installed formatter.
+Spork is already a dependency, so no additional JPM or runtime dependency is needed.
+The formatter normalizes indentation and preserves intentional blank lines; it
+does not choose where functions or long expressions should be split.
+
+`scripts/test.sh` runs the formatting check automatically, including in build and
+release CI. CI reports unformatted files without rewriting or committing code.
+Generated and vendored dependencies are excluded. When adding code, retain the
+blank lines between functions and break complex expressions into readable lines.
+
 ## Published-package smoke test
 
 Run the **Published RPM install test** workflow manually after publishing a release.
