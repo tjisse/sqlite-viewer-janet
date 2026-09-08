@@ -57,7 +57,9 @@ The x86_64 artifact requires glibc 2.38+ and OpenSSL 3.0+, suitable for Fedora
 ## Development and tests
 
 Application code is in `src/*.janet`; styling and small browser enhancements are
-in `assets/`. There are no handwritten C files in this repository. JPM's
+in `assets/`. HTML components use janet-html trees, rendered through `ui/render`
+which escapes attributes and handles optional boolean attributes. The library is
+pinned in `deps.lock` and embedded by the existing build flow. There are no handwritten C files in this repository. JPM's
 `declare-executable` builds `src/main.janet`; `project.janet` declares the native
 dependencies using their own source files. JPM-generated C and intermediate
 native modules stay in `.build/` and are not shipped. The public SQLite controls

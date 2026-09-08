@@ -1,6 +1,7 @@
 """Real HTTP/JWT/SSE integration tests. Ephemeral keys use cryptography, never application crypto."""
 import base64
 import http.client
+from html.parser import HTMLParser
 import json
 import os
 import shutil
@@ -114,6 +115,40 @@ class Viewer(unittest.TestCase):
         _,_,html=self.request('/?table=customers&filter=country&value=Japan&op=equals')
         self.assertIn('40 rows',html)
         self.assertEqual(400,self.request('/?table=missing')[0])
+
+    def test_html_attributes_and_datastar(self):
+        class Elements(HTMLParser):
+            def __init__(self, source):
+                super().__init__()
+                self.elements = []
+                self.feed(source)
+
+            def handle_starttag(self, tag, attrs):
+                self.elements.append((tag, dict(attrs)))
+
+        value = '"<probe>&\'/100%'
+        params = {'table': 'customers', 'search': value, 'hidden': 'email'}
+        status, _, body = self.request('/?' + urllib.parse.urlencode(params))
+        self.assertEqual(200, status)
+        elements = Elements(body).elements
+        search = next(attrs for tag, attrs in elements if attrs.get('name') == 'search')
+        self.assertEqual(value, search['value'])
+        self.assertFalse(any(tag == 'probe' for tag, _ in elements))
+        columns = [attrs for tag, attrs in elements if 'data-column' in attrs]
+        self.assertTrue(columns)
+        for attrs in columns:
+            self.assertEqual(attrs['data-column'] != 'email', 'checked' in attrs)
+        subscription = next(attrs for _, attrs in elements if attrs.get('id') == 'subscription')
+        expression = subscription['data-init']
+        self.assertTrue(expression.startswith("@get('/events?"))
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(expression[6:-2]).query)
+        self.assertEqual([value], query['search'])
+        _, _, body = self.request('/?table=customers&tab=SQL')
+        elements = Elements(body).elements
+        editor = next(attrs for _, attrs in elements if attrs.get('class') == 'sql-editor')
+        self.assertEqual({'sql': 'SELECT * FROM "customers" LIMIT 100'}, json.loads(editor['data-signals']))
+        self.assertEqual("@post('/query?db=Studio')", editor['data-on:submit__prevent'])
+        self.assertTrue(any('data-bind:sql' in attrs for _, attrs in elements))
 
     def test_sql_and_export(self):
         for query,valid in [('SELECT 42 AS answer',True),('DELETE FROM customers',False),

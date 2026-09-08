@@ -1,10 +1,21 @@
 (import db)
 (import jayson)
+(import janet-html :as html)
 
-(defn escape [value]
-  (string/replace-all "'" "&#39;" (string/replace-all "\"" "&quot;"
-                                                      (string/replace-all ">" "&gt;" (string/replace-all "<" "&lt;"
-                                                                                                         (string/replace-all "&" "&amp;" (string value)))))))
+# janet-html escapes text, but expects callers to escape attribute values.
+# Omit false/nil attributes and encode true as an HTML boolean attribute.
+(defn- safe-tree [node]
+  (if (indexed? node)
+    (if (and (keyword? (first node)) (dictionary? (get node 1)))
+      [(first node)
+       (tabseq [[k v] :pairs (node 1) :when v]
+         k (if (true? v) "" (html/escape v)))
+       ;(map safe-tree (drop 2 node))]
+      (map safe-tree node))
+    node))
+
+(defn render [& nodes]
+  (apply html/encode (map safe-tree nodes)))
 
 (defn enc [value]
   (def out @"")
@@ -19,98 +30,169 @@
   (string "/?" (string/join (seq [[k v] :pairs merged :when (string? v)] (string (enc k) "=" (enc v))) "&")))
 
 (defn link [text q & changes]
-  (string "<a href=\"" (escape (apply url q changes)) "\">" (escape text) "</a>"))
+  [:a {:href (apply url q changes)} text])
 
 (defn hidden [name value]
-  (string "<input type=\"hidden\" name=\"" (escape name) "\" value=\"" (escape value) "\">"))
+  [:input {:type "hidden" :name name :value (string value)}])
 
 (defn option [value selected]
-  (string "<option value=\"" (escape value) "\"" (if (= value selected) " selected" "") ">" (escape (if (= value "") "All columns" value)) "</option>"))
+  [:option {:value value :selected (= value selected)} (if (= value "") "All columns" value)])
 
 (defn cell [value]
   (cond
-    (nil? value) "<span class=\"null\">NULL</span>"
-    (buffer? value) (string "<span class=\"blob\">BLOB · " (length value) " bytes</span>")
-    (string "<span title=\"" (escape value) "\">" (escape value) "</span>")))
+    (nil? value) [:span {:class "null"} "NULL"]
+    (buffer? value) [:span {:class "blob"} "BLOB · " (length value) " bytes"]
+    [:span {:title value} value]))
 
 (defn grid [result]
-  (string "<div class=\"grid-scroll\" tabindex=\"0\" aria-label=\"Query results\"><table><thead><tr><th class=\"row-number\">#</th>"
-          (string/join (map |(string "<th scope=\"col\">" (escape $) "</th>") (result :columns)))
-          "</tr></thead><tbody>"
-          (string/join (seq [[i row] :pairs (result :rows)]
-                         (string "<tr><td class=\"row-number\">" (inc i) "</td>"
-                                 (string/join (map |(string "<td>" (cell $) "</td>") row)) "</tr>")))
-          "</tbody></table>"
-          (if (empty? (result :rows)) "<div class=\"empty\"><strong>No rows to show</strong><p>Try a different search or filter.</p></div>" "")
-          "</div>"))
+  [:div {:class "grid-scroll" :tabindex "0" :aria-label "Query results"}
+   [:table
+    [:thead [:tr [:th {:class "row-number"} "#"]
+             (map |[:th {:scope "col"} $] (result :columns))]]
+    [:tbody (seq [[i row] :pairs (result :rows)]
+              [:tr [:td {:class "row-number"} (inc i)]
+               (map |[:td (cell $)] row)])]]
+   (when (empty? (result :rows))
+     [:div {:class "empty"} [:strong "No rows to show"] [:p "Try a different search or filter."]])])
 
 (defn result [database s q]
-  (string "<section id=\"result\" class=\"result\" aria-label=\"Table contents\">"
-          (if (nil? (s :table)) "<div class=\"empty\"><h2>This database has no tables</h2><p>Tables will appear here when they are created.</p></div>"
-            (case (s :tab)
-              "Schema" (string (grid (db/schema database (s :table))) "<footer>Column definitions · Primary key positions and generated columns</footer>")
-              "Indexes" (string (grid (db/indexes database (s :table))) "<footer>Indexes defined on this table</footer>")
-              "SQL" "<div class=\"empty\"><p>Run a query to see its results here.</p></div>"
-              (do
-                (def r (db/data database s))
-                (string (grid r) "<footer><span>" (r :total) " rows · " (length (r :columns)) " visible columns</span><nav aria-label=\"Pagination\">"
-                        (if (> (s :page) 1) (link "‹ Previous" q "page" (string (dec (s :page)))) "<span class=\"disabled\">‹ Previous</span>")
-                        "<span>Page " (s :page) " of " (max 1 (math/ceil (/ (r :total) (s :size)))) "</span>"
-                        (if (< (* (s :page) (s :size)) (r :total)) (link "Next ›" q "page" (string (inc (s :page)))) "<span class=\"disabled\">Next ›</span>")
-                        "</nav></footer>")))) "</section>"))
+  [:section {:id "result" :class "result" :aria-label "Table contents"}
+   (if (nil? (s :table))
+     [:div {:class "empty"} [:h2 "This database has no tables"] [:p "Tables will appear here when they are created."]]
+     (case (s :tab)
+       "Schema" [(grid (db/schema database (s :table))) [:footer "Column definitions · Primary key positions and generated columns"]]
+       "Indexes" [(grid (db/indexes database (s :table))) [:footer "Indexes defined on this table"]]
+       "SQL" [:div {:class "empty"} [:p "Run a query to see its results here."]]
+       (do
+         (def r (db/data database s))
+         [(grid r)
+          [:footer
+           [:span (r :total) " rows · " (length (r :columns)) " visible columns"]
+           [:nav {:aria-label "Pagination"}
+            (if (> (s :page) 1) (link "‹ Previous" q "page" (string (dec (s :page)))) [:span {:class "disabled"} "‹ Previous"])
+            [:span "Page " (s :page) " of " (max 1 (math/ceil (/ (r :total) (s :size))))]
+            (if (< (* (s :page) (s :size)) (r :total)) (link "Next ›" q "page" (string (inc (s :page)))) [:span {:class "disabled"} "Next ›"])]]])))])
 
 (defn error-result [message]
-  (string "<section id=\"result\" class=\"result\"><div class=\"empty error\" role=\"alert\"><h2>Couldn’t load these results</h2><p>" (escape message) "</p><p>Try a narrower query or reload the table.</p></div></section>"))
+  [:section {:id "result" :class "result"}
+   [:div {:class "empty error" :role "alert"}
+    [:h2 "Couldn’t load these results"] [:p (string message)] [:p "Try a narrower query or reload the table."]]])
+
+(defn query-result [r truncated]
+  [:section {:id "result" :class "result"} (grid r)
+   [:footer (length (r :rows)) " rows" (when truncated " · Limited to 200 rows")]])
+
+(defn live-status []
+  [:span {:id "live" :class "live" :data-heartbeat (os/time)} "● Live"])
+
+(defn expired-status []
+  [:span {:id "live" :class "live expired"} "Session expired · Sign in again"])
 
 (defn table-list [database selected]
   (def rows (db/tables database))
-  (string "<div id=\"table-list\"><div class=\"section-label\">TABLES <span>" (length rows) "</span></div><nav aria-label=\"Tables\">"
-          (string/join (map (fn [t] (string "<a class=\"table-link " (if (= (first t) selected) "selected" "") "\" href=\""
-                                            (escape (url {"db" (database :name)} "table" (first t))) "\"><span aria-hidden=\"true\">▦</span>" (escape (first t)) "</a>")) rows))
-          "</nav></div>"))
+  [:div {:id "table-list"}
+   [:div {:class "section-label"} "TABLES " [:span (length rows)]]
+   [:nav {:aria-label "Tables"}
+    (map (fn [t]
+           [:a {:class (if (= (first t) selected) "table-link selected" "table-link")
+                :href (url {"db" (database :name)} "table" (first t))}
+            [:span {:aria-hidden "true"} "▦"] (first t)]) rows)]])
 
 (defn meta [database s]
-  (string "<p id=\"table-meta\">" (if (s :total) (string (s :total) " rows <span>·</span> ") "")
-          (length (s :columns)) " columns <span>·</span> " (escape (database :name)) "</p>"))
+  [:p {:id "table-meta"}
+   (when (s :total) [(s :total) " rows " [:span "·"] " "])
+   (length (s :columns)) " columns " [:span "·"] " " (database :name)])
 
 (defn shell [body]
-  (string "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>SQLite Viewer</title><link rel=\"icon\" href=\"/assets/icon.svg\"><link rel=\"stylesheet\" href=\"/assets/app.css\"><script type=\"module\" src=\"/assets/datastar.js\"></script><script defer src=\"/assets/app.js\"></script></head><body>" body "</body></html>"))
+  (render (html/doctype :html5)
+          [:html {:lang "en"}
+           [:head
+            [:meta {:charset "utf-8"}]
+            [:meta {:name "viewport" :content "width=device-width,initial-scale=1"}]
+            [:title "SQLite Viewer"]
+            [:link {:rel "icon" :href "/assets/icon.svg"}]
+            [:link {:rel "stylesheet" :href "/assets/app.css"}]
+            [:script {:type "module" :src "/assets/datastar.js"}]
+            [:script {:defer true :src "/assets/app.js"}]]
+           [:body body]]))
 
 (defn login [&opt message]
-  (shell (string "<main class=\"login\"><div class=\"app-icon\">▦</div><h1>SQLite Viewer</h1><p>Sign in with an access token from your trusted identity provider.</p>"
-                 (if message (string "<p class=\"error\" role=\"alert\">" (escape message) "</p>") "")
-                 "<form method=\"post\" action=\"/session\"><label for=\"token\">Access token</label><textarea id=\"token\" name=\"token\" required autocomplete=\"off\" spellcheck=\"false\"></textarea><button class=\"primary\">Sign in</button></form><small>Your token stays in an HttpOnly session cookie.</small></main>")))
+  (shell
+    [:main {:class "login"}
+     [:div {:class "app-icon"} "▦"] [:h1 "SQLite Viewer"]
+     [:p "Sign in with an access token from your trusted identity provider."]
+     (when message [:p {:class "error" :role "alert"} message])
+     [:form {:method "post" :action "/session"}
+      [:label {:for "token"} "Access token"]
+      [:textarea {:id "token" :name "token" :required true :autocomplete "off" :spellcheck "false"}]
+      [:button {:class "primary"} "Sign in"]]
+     [:small "Your token stays in an HttpOnly session cookie."]]))
+
+(defn- sql-editor [name s]
+  [:form {:class "sql-editor"
+          :data-signals (jayson/encode @{:sql (string "SELECT * FROM " (db/quote-id (or (s :table) "sqlite_schema")) " LIMIT 100")})
+          :data-on:submit__prevent (string "@post('/query?db=" (enc name) "')")}
+   [:label {:for "sql"} "SQL query"]
+   [:textarea {:id "sql" :data-bind:sql true :spellcheck "false"}]
+   [:div [:span "Read-only · Up to 200 rows · 250 ms budget"] [:button {:class "primary"} "▶ Run query"]]])
+
+(defn- toolbar [name s q]
+  [:form {:class "toolbar" :method "get"}
+   (hidden "db" name) (hidden "table" (s :table)) (hidden "tab" (s :tab))
+   [:label {:class "search"} [:span {:aria-hidden "true"} "⌕"]
+    [:input {:name "search" :placeholder "Search this table" :aria-label "Search this table" :value (s :search)}]]
+   [:details [:summary "☷ Filter"]
+    [:div {:class "popover"}
+     [:label "Column" [:select {:name "filter"} (option "" (s :filter)) (map |(option $ (s :filter)) (s :columns))]]
+     [:label "Condition" [:select {:name "op"} (option "equals" (s :op)) (option "contains" (s :op))]]
+     [:label "Value" [:input {:name "value" :value (s :value)}]]
+     [:button {:class "primary"} "Apply filter"]]]
+   [:details [:summary "↕ Sort"]
+    [:div {:class "popover"}
+     [:label "Column" [:select {:name "sort"} (map |(option $ (s :sort)) (s :columns))]]
+     [:label "Order" [:select {:name "direction"} (option "asc" (s :direction)) (option "desc" (s :direction))]]
+     [:button {:class "primary"} "Apply sort"]]]
+   [:details [:summary "▥ Columns"]
+    [:div {:class "popover columns"}
+     (map |[:label [:input {:type "checkbox" :data-column $ :checked (nil? (index-of $ (s :hidden)))}] $] (s :columns))
+     (hidden "hidden" (get q "hidden" ""))
+     [:button {:class "primary"} "Apply columns"]]]
+   [:label {:class "page-size"} [:span {:class "sr-only"} "Rows per page"]
+    [:select {:name "size"} (map |(option $ (string (s :size))) ["10" "25" "50" "100" "200"])]]
+   [:button {:class "apply"} "Apply"]
+   [:a {:class "export" :href (string "/export" (string/slice (url q) 1))} "↥ Export"]])
 
 (defn page [database databases s q demo]
   (def name (database :name))
-  (def all-tables (db/tables database))
-  (def base @{"db" name "table" (s :table)})
   (def rendered (protect (result database s q)))
-  (shell (string "<div class=\"workspace\"><aside><div class=\"brand\"><span class=\"app-icon\">▦</span><strong>SQLite Viewer</strong></div>"
-                 "<form method=\"get\" class=\"database-picker\"><label for=\"database\">DATABASE</label><select id=\"database\" name=\"db\" data-autosubmit>"
-                 (string/join (map |(option $ name) databases)) "</select><noscript><button>Open</button></noscript></form>"
-                 (table-list database (s :table))
-                 "<div class=\"sidebar-bottom\"><div class=\"connection\"><i></i> " (if demo "Demo database" "Read-only connection") "</div>"
-                 (if demo "<small>Sample data · Local access</small>" "<form method=\"post\" action=\"/logout\"><button>Sign out</button></form>")
-                 "</div></aside><main class=\"main\"><header><div><div class=\"breadcrumb\">" (escape name) " <span>/</span> Tables</div><h1><span class=\"table-icon\">▦</span> "
-                 (escape (or (s :table) "Database")) "</h1>" (meta database s) "</div><span id=\"live\" class=\"live\">" (if (= "SQL" (s :tab)) "● Ready" "● Connecting") "</span></header>"
-                 "<nav class=\"segments\" aria-label=\"Table views\">"
-                 (string/join (map |(string "<a class=\"" (if (= $ (s :tab)) "active" "") "\" "
-                                            (if (= $ (s :tab)) "aria-current=\"page\" " "") "href=\"" (escape (url q "tab" $ "page" "1")) "\">" $ "</a>") ["Data" "Schema" "Indexes" "SQL"])) "</nav>"
-                 (if (= "SQL" (s :tab))
-                   (string "<form class=\"sql-editor\" data-signals=\"" (escape (jayson/encode @{:sql (string "SELECT * FROM " (db/quote-id (or (s :table) "sqlite_schema")) " LIMIT 100")}))
-                           "\" data-on:submit__prevent=\"@post('/query?db=" (enc name) "')\"><label for=\"sql\">SQL query</label><textarea id=\"sql\" data-bind:sql spellcheck=\"false\"></textarea><div><span>Read-only · Up to 200 rows · 250 ms budget</span><button class=\"primary\">▶ Run query</button></div></form>")
-                   (string "<form class=\"toolbar\" method=\"get\">" (hidden "db" name) (hidden "table" (s :table)) (hidden "tab" (s :tab))
-                           "<label class=\"search\"><span aria-hidden=\"true\">⌕</span><input name=\"search\" placeholder=\"Search this table\" aria-label=\"Search this table\" value=\"" (escape (s :search)) "\"></label>"
-                           "<details><summary>☷ Filter</summary><div class=\"popover\"><label>Column<select name=\"filter\">" (option "" (s :filter)) (string/join (map |(option $ (s :filter)) (s :columns)))
-                           "</select></label><label>Condition<select name=\"op\">" (option "equals" (s :op)) (option "contains" (s :op)) "</select></label><label>Value<input name=\"value\" value=\"" (escape (s :value)) "\"></label><button class=\"primary\">Apply filter</button></div></details>"
-                           "<details><summary>↕ Sort</summary><div class=\"popover\"><label>Column<select name=\"sort\">" (string/join (map |(option $ (s :sort)) (s :columns))) "</select></label><label>Order<select name=\"direction\">" (option "asc" (s :direction)) (option "desc" (s :direction)) "</select></label><button class=\"primary\">Apply sort</button></div></details>"
-                           "<details><summary>▥ Columns</summary><div class=\"popover columns\">"
-                           (string/join (map |(string "<label><input type=\"checkbox\" data-column=\"" (escape $) "\"" (if (index-of $ (s :hidden)) "" " checked") ">" (escape $) "</label>") (s :columns)))
-                           (hidden "hidden" (get q "hidden" "")) "<button class=\"primary\">Apply columns</button></div></details>"
-                           "<label class=\"page-size\"><span class=\"sr-only\">Rows per page</span><select name=\"size\">" (string/join (map |(option $ (string (s :size))) ["10" "25" "50" "100" "200"])) "</select></label><button class=\"apply\">Apply</button>"
-                           "<a class=\"export\" href=\"/export" (escape (string/slice (url q) 1)) "\">↥ Export</a></form>"))
-                 (if (first rendered) (rendered 1) (error-result (rendered 1)))
-                 "<p class=\"footnote\">" (if (= "SQL" (s :tab)) "Run a query to subscribe to its results. ⌘/Ctrl + Enter to run." "Changes appear automatically. Your database stays read-only.") "</p>"
-                 (if (= "SQL" (s :tab)) "" (string "<div id=\"subscription\" data-init=\"@get('/events" (escape (string/slice (url q "db" name "table" (or (s :table) "")) 1)) "')\"></div>"))
-                 "</main></div>")))
+  (shell
+    [:div {:class "workspace"}
+     [:aside
+      [:div {:class "brand"} [:span {:class "app-icon"} "▦"] [:strong "SQLite Viewer"]]
+      [:form {:method "get" :class "database-picker"}
+       [:label {:for "database"} "DATABASE"]
+       [:select {:id "database" :name "db" :data-autosubmit true} (map |(option $ name) databases)]
+       [:noscript [:button "Open"]]]
+      (table-list database (s :table))
+      [:div {:class "sidebar-bottom"}
+       [:div {:class "connection"} [:i] " " (if demo "Demo database" "Read-only connection")]
+       (if demo [:small "Sample data · Local access"]
+         [:form {:method "post" :action "/logout"} [:button "Sign out"]])]]
+     [:main {:class "main"}
+      [:header
+       [:div
+        [:div {:class "breadcrumb"} name " " [:span "/"] " Tables"]
+        [:h1 [:span {:class "table-icon"} "▦"] " " (or (s :table) "Database")]
+        (meta database s)]
+       [:span {:id "live" :class "live"} (if (= "SQL" (s :tab)) "● Ready" "● Connecting")]]
+      [:nav {:class "segments" :aria-label "Table views"}
+       (map |[:a {:class (if (= $ (s :tab)) "active" "")
+                  :aria-current (when (= $ (s :tab)) "page")
+                  :href (url q "tab" $ "page" "1")} $] ["Data" "Schema" "Indexes" "SQL"])]
+      (if (= "SQL" (s :tab)) (sql-editor name s) (toolbar name s q))
+      (if (first rendered) (rendered 1) (error-result (rendered 1)))
+      [:p {:class "footnote"} (if (= "SQL" (s :tab))
+                                "Run a query to subscribe to its results. ⌘/Ctrl + Enter to run."
+                                "Changes appear automatically. Your database stays read-only.")]
+      (when (not= "SQL" (s :tab))
+        [:div {:id "subscription" :data-init (string "@get('/events" (string/slice (url q "db" name "table" (or (s :table) "")) 1) "')")}])]]))

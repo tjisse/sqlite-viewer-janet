@@ -39,7 +39,14 @@
   (check (= "Ada" (((rows :rows) 0) 1)) "search selects correct row")
   (check (not (first (protect (db/state database {"table" "items; DROP TABLE items"})))) "unknown table rejected")
   (check (not (first (protect (db/state database {"table" "items" "sort" "random()"})))) "unknown sort rejected")
-  (check (= "&lt;script&gt;&amp;&quot;&#39;" (ui/escape "<script>&\"'")) "HTML escaping")
+  (check (= "<span title=\"&lt;script&gt;&amp;&quot;&#x27;\">&lt;script&gt;&amp;&quot;&#x27;</span>"
+            (ui/render (ui/cell "<script>&\"'"))) "cell text and attributes are escaped once")
+  (check (string/find " selected=\"\"" (ui/render (ui/option "x" "x"))) "selected option")
+  (check (= "<option value=\"x\">x</option>" (ui/render (ui/option "x" "y"))) "unselected option omits boolean attribute")
+  (check (= "<div><span>first</span>after<span>last</span></div>"
+            (ui/render [:div [:span "first"] "after" nil [:span "last"]])) "mixed children and optional markup")
+  (check (string/find "&lt;script&gt;" (ui/render (ui/grid rows))) "grid escapes database content")
+  (check (string/find "&lt;script&gt;" (ui/render (ui/error-result "<script>"))) "error message escaping")
   (check (= "Grace" (get-in (query/run conn "SELECT name FROM items WHERE id=?" [1]) [:rows 0 0])) "safe query binds parameters")
   (each statement ["DELETE FROM items" "ATTACH '/tmp/no.db' AS other" "PRAGMA writable_schema=ON"
                    "SELECT 1; SELECT 2" "SELECT load_extension('anything')" "VACUUM INTO '/tmp/no.db'"

@@ -16,9 +16,6 @@
 (var origin "http://127.0.0.1:8080")
 (var streams 0)
 
-(defn live-status []
-  (string "<span id=\"live\" class=\"live\" data-heartbeat=\"" (os/time) "\">● Live</span>"))
-
 (defn response [status body &opt type headers]
   @{:status status :body body :headers (merge
                                          @{"Content-Type" (or type "text/html; charset=utf-8") "Cache-Control" "no-store"
@@ -61,15 +58,15 @@
                                                           (when (not= "SQL" (s :tab))
                                                             (def r (protect
                                                                      (def fresh (db/state database q))
-                                                                     (string (ui/result database fresh q) (ui/meta database fresh) (ui/table-list database (fresh :table)))))
-                                                            (ds/patch-elements gen (if (first r) (r 1) (ui/error-result (r 1)))))
-                                                          (ds/patch-elements gen (live-status)))
+                                                                     (ui/render (ui/result database fresh q) (ui/meta database fresh) (ui/table-list database (fresh :table)))))
+                                                            (ds/patch-elements gen (if (first r) (r 1) (ui/render (ui/error-result (r 1))))))
+                                                          (ds/patch-elements gen (ui/render (ui/live-status))))
                                                         (when (= 0 (% heartbeat 15))
-                                                          (ds/patch-elements gen (live-status)))
+                                                          (ds/patch-elements gen (ui/render (ui/live-status))))
                                                         (++ heartbeat)
                                                         (ev/sleep 1))
                                                       (when (gen :open?)
-                                                        (ds/patch-elements gen "<span id=\"live\" class=\"live expired\">Session expired · Sign in again</span>"))))
+                                                        (ds/patch-elements gen (ui/render (ui/expired-status))))))
                          :on-close (fn [gen] (-- streams))}))
 
 (defn query-result [database statement]
@@ -77,9 +74,8 @@
   (if (first result)
     (do (def r (result 1)) (def truncated (> (length (r :rows)) 200))
       (when truncated (array/pop (r :rows)))
-      (string "<section id=\"result\" class=\"result\">" (ui/grid r) "<footer>" (length (r :rows)) " rows"
-              (if truncated " · Limited to 200 rows" "") "</footer></section>"))
-    (ui/error-result (result 1))))
+      (ui/render (ui/query-result r truncated)))
+    (ui/render (ui/error-result (result 1)))))
 
 (defn query-stream [req database statement claims]
   (when (>= streams 64) (break (response 503 "Too many live subscriptions" "text/plain")))
@@ -96,11 +92,11 @@
                                                           (set seen version)
                                                           (ds/patch-elements gen (query-result database statement)))
                                                         (unless live? (break))
-                                                        (when (= 0 (% tick 15)) (ds/patch-elements gen (live-status)))
+                                                        (when (= 0 (% tick 15)) (ds/patch-elements gen (ui/render (ui/live-status))))
                                                         (++ tick)
                                                         (ev/sleep 1))
                                                       (when (and live? (gen :open?))
-                                                        (ds/patch-elements gen "<span id=\"live\" class=\"live expired\">Session expired · Sign in again</span>"))))
+                                                        (ds/patch-elements gen (ui/render (ui/expired-status))))))
                          :on-close (fn [gen] (-- streams))}))
 
 (defn route [req]
