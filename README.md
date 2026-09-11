@@ -371,3 +371,16 @@ including libjwt's MPL-2.0, in the package. `deps.lock` records source repositor
 and exact commits. The vendored Datastar v1.0.2 browser bundle has SHA256
 `2837d87acf6ee0ba8e4e63765926c25a98d63883b02f88be194a86b81d3fd24a`.
 Its source is [starfederation/datastar v1.0.2](https://github.com/starfederation/datastar/tree/v1.0.2).
+
+### SQL expressions
+
+The viewer builds its table, schema, index, search, filter, and pagination queries
+with [janet-sqlexpr](https://github.com/tjisse/janet-sqlexpr), a separate pure Janet
+jpm library inspired by HoneySQL. Its exact commit is recorded in `deps.lock` and
+its source is embedded in the executable by `scripts/build.sh`.
+
+`(sqlexpr/format query)` returns `[sql params]` for the existing SQLite binding.
+The viewer passes these through `query/run`, preserving authorization, read-only
+execution, and resource limits. Dynamic table/column names use `sqlexpr/id`;
+values use positional bindings. The library also offers the optional
+`(sqlexpr/expr (= name ,value))` macro for Lisp-style expression syntax.

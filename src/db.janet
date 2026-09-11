@@ -1,21 +1,33 @@
 (import sqlite3 :as sql)
 (import watch)
+(import sqlexpr :as expr)
 (import query :as bounded)
 
-(defn quote-id [name]
-  (string "\"" (string/replace-all "\"" "\"\"" name) "\""))
+(def quote-id expr/quote-id)
 
 (defn query [database statement &opt params cap]
   (bounded/run (database :db) statement params cap))
 
+(defn- query-expr [database form &opt cap]
+  (def [statement params] (expr/format form))
+  (query database statement params cap))
+
 (defn tables [database]
-  ((query database "SELECT name, type FROM sqlite_schema WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name" [] 1001) :rows))
+  ((query-expr database
+               {:select [:name :type] :from [:sqlite_schema]
+                :where [:and [:in :type ["table" "view"]] [:not-like :name "sqlite_%"]]
+                :order-by [[:name :asc]]} 1001) :rows))
 
 (defn schema [database table]
-  (query database "SELECT cid, name, type, \"notnull\" AS required, dflt_value AS default_value, pk AS primary_key, hidden FROM pragma_table_xinfo(?)" [table] 257))
+  (query-expr database
+              {:select [:cid :name :type [:as :notnull :required] [:as :dflt_value :default_value]
+                        [:as :pk :primary_key] :hidden]
+               :from [[:call :pragma_table_xinfo table]]} 257))
 
 (defn indexes [database table]
-  (query database "SELECT name, \"unique\" AS is_unique, origin, partial FROM pragma_index_list(?)" [table]))
+  (query-expr database
+              {:select [:name [:as :unique :is_unique] :origin :partial]
+               :from [[:call :pragma_index_list table]]}))
 
 (defn columns [database table]
   (map |($ 1) ((schema database table) :rows)))
@@ -46,28 +58,33 @@
     :op (if (= "contains" (get q "op")) "contains" "equals")
     :hidden hidden :tab (get q "tab" "Data")})
 
+(defn- contains-text [column value]
+  [:> [:call :instr [:call :lower [:cast (expr/id column) :text]] [:call :lower value]] 0])
+
+(defn- combine [op clauses]
+  (if (= 1 (length clauses)) (first clauses) [op ;clauses]))
+
 (defn data [database s]
-  (def clauses @[]) (def params @[])
+  (def clauses @[])
   (when (not= "" (s :search))
-    (array/push clauses (string "(" (string/join
-                                      (map |(string "instr(lower(CAST(" (quote-id $) " AS TEXT)),lower(?))>0") (s :columns)) " OR ") ")"))
-    (each c (s :columns) (array/push params (s :search))))
+    (array/push clauses (combine :or (map |(contains-text $ (s :search)) (s :columns)))))
   (when (not= "" (s :filter))
     (array/push clauses (if (= "contains" (s :op))
-                          (string "instr(lower(CAST(" (quote-id (s :filter)) " AS TEXT)),lower(?))>0")
-                          (string "CAST(" (quote-id (s :filter)) " AS TEXT)=?")))
-    (array/push params (s :value)))
-  (def where (if (empty? clauses) "" (string " WHERE " (string/join clauses " AND "))))
-  (def source (string " FROM " (quote-id (s :table)) where))
-  (def count-result (query database (string "SELECT count(*)" source) params))
+                          (contains-text (s :filter) (s :value))
+                          [:= [:cast (expr/id (s :filter)) :text] (s :value)])))
+  (def source @{:from [(expr/id (s :table))]})
+  (unless (empty? clauses) (put source :where (combine :and clauses)))
+  (def count-result (query-expr database (merge source {:select [[:call :count :*]]})))
   (def total (scan-number (((count-result :rows) 0) 0)))
   (def page (min (s :page) (max 1 (math/ceil (/ total (s :size))))))
   (put s :page page)
   (var visible (filter |(not (index-of $ (s :hidden))) (s :columns)))
   (when (empty? visible) (set visible (s :columns)))
-  (def result (query database (string "SELECT " (string/join (map quote-id visible) ",") source
-                                      " ORDER BY " (quote-id (s :sort)) " " (s :direction)
-                                      " LIMIT " (s :size) " OFFSET " (* (dec page) (s :size))) params (inc (s :size))))
+  (def result (query-expr database
+                          (merge source {:select (map expr/id visible)
+                                         :order-by [[(expr/id (s :sort)) (keyword (s :direction))]]
+                                         :limit (s :size) :offset (* (dec page) (s :size))})
+                          (inc (s :size))))
   (put result :total total)
   (put s :total total)
   result)

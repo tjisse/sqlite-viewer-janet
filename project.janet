@@ -35,6 +35,7 @@
 
 (def inputs
   [;source-files "deps.lock" "project.janet"
+   (string deps "/janet-sqlexpr/src/sqlexpr.janet")
    "assets/app.css" "assets/app.js" "assets/datastar.js" "assets/icon.svg"
    (string deps "/sqlite3/query-controls.c")
    ;(mapcat values native-targets)])

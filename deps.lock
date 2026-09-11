@@ -10,3 +10,4 @@ judge https://github.com/ianthehenry/judge 612c3f41bbb75649515d6b0bdcf6116419030
 libjwt https://github.com/benmcollins/libjwt 94e3cdf35d120c4d869851714a2cf9f582e9b61e
 jansson https://github.com/akheron/jansson 851a2145e3256f2e67e5dfe24b0e456bf198b741
 janet-html https://github.com/swlkr/janet-html d3b145d22dcf7b5da979b36de5ba3e4ddcb25da3
+janet-sqlexpr https://github.com/tjisse/janet-sqlexpr 7cbd35a1b020315056e27c84b280f46a378a9fc8
