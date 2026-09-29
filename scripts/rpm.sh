@@ -7,7 +7,7 @@ stage=$package_dir/sqlite-viewer-runtime
 mkdir -p "$stage" .build/rpm/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS,tmp,db}
 cp -a dist/bin dist/share "$stage/"
 cp -a packaging README.md "$stage/"
-tar -czf .build/rpm/SOURCES/sqlite-viewer-0.2.0-runtime.tar.gz -C "$package_dir" sqlite-viewer-runtime
+tar -czf .build/rpm/SOURCES/sqlite-viewer-0.3.0-runtime.tar.gz -C "$package_dir" sqlite-viewer-runtime
 rpmbuild -bb --nodeps --define "_topdir $root/.build/rpm" \
   --define "_tmppath $root/.build/rpm/tmp" --define "_dbpath $root/.build/rpm/db" \
   --define '_unpackaged_files_terminate_build 1' \

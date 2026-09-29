@@ -145,7 +145,7 @@
   (if (first result) (result 1) (response 400 "Request could not be processed. Check the table, query, and request format." "text/plain")))
 
 (defn main [args]
-  (when (= "--version" (get args 1)) (print "sqlite-viewer 0.2.0") (break nil))
+  (when (= "--version" (get args 1)) (print "sqlite-viewer 0.3.0") (break nil))
   (when (= "--seed" (get args 1)) (seed/create (get args 2 "demo.sqlite")) (break nil))
   (set demo (= "--demo" (get args 1)))
   (def host (os/getenv "SV_HOST" "127.0.0.1"))

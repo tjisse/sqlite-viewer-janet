@@ -1,6 +1,6 @@
 (declare-project
   :name "sqlite-viewer"
-  :version "0.2.0"
+  :version "0.3.0"
   :description "A reactive SQLite viewer built entirely in Janet.")
 
 # scripts/build.sh fetches exact revisions from deps.lock and builds crypto libs.

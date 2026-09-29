@@ -1,12 +1,12 @@
 %global debug_package %{nil}
 %global _build_id_links none
 Name: sqlite-viewer
-Version: 0.2.0
+Version: 0.3.0
 Release: 1
 Summary: Reactive read-only SQLite browser built in Janet
 License: MIT AND MPL-2.0 AND Unlicense
 URL: https://github.com/tjisse/sqlite-viewer-janet
-Source0: sqlite-viewer-0.2.0-runtime.tar.gz
+Source0: sqlite-viewer-0.3.0-runtime.tar.gz
 BuildArch: x86_64
 Requires: glibc >= 2.38
 Requires: openssl-libs >= 3.0
@@ -77,6 +77,10 @@ fi
 %dir %attr(0750,sqlite-viewer,sqlite-viewer) /var/lib/sqlite-viewer
 
 %changelog
+* Tue Sep 29 2026 SQLite Viewer contributors - 0.3.0-1
+- Authenticate Cloudflare Access assertions and enforce prefixed Entra app roles.
+- Embed Jurl HTTPS bindings with bounded, asynchronous public-key fetching.
+- Build viewer queries with pinned Janet SQL expressions.
 * Mon Sep 07 2026 SQLite Viewer contributors - 0.2.0-1
 - Bundle Janet code, native bindings and browser assets into one executable.
 - Move query controls to the SQLite binding; keep viewer policy in Janet.
