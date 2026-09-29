@@ -285,7 +285,7 @@ between SQLite VM operations, not a hard process-level deadline for every builti
 ```sh
 bash scripts/rpm.sh
 # Local artifact has no maintainer signature yet. Verify its supplied SHA256.
-sudo dnf install ./dist/sqlite-viewer-0.3.0-1.x86_64.rpm
+sudo dnf install ./dist/sqlite-viewer-0.3.1-1.x86_64.rpm
 ```
 
 Package layout:
@@ -337,7 +337,7 @@ One-time maintainer setup:
    noninteractive workflow expects a dedicated unencrypted CI key protected by
    Actions secrets/environment controls; use a hardware/KMS signing workflow if
    that is your policy. Publish/verify its fingerprint out of band.
-4. Push a matching version tag (currently `v0.3.0`), let Build and test pass, then
+4. Push a matching version tag (currently `v0.3.1`), let Build and test pass, then
    run **Publish signed RPM repository** with that tag. Publication rebuilds/tests,
    signs the RPM, creates a release, regenerates metadata with retained release
    RPMs, signs `repomd.xml`, and deploys Pages. Both RPM and metadata verification
