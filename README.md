@@ -14,7 +14,7 @@ identity verification with separate database authorization.
 Build prerequisites on Ubuntu 24.04:
 
 ```sh
-sudo apt-get install build-essential cmake pkg-config libssl-dev git python3-cryptography rpm createrepo-c
+sudo apt-get install build-essential cmake pkg-config libssl-dev libcurl4-openssl-dev git python3-cryptography rpm createrepo-c
 git clone https://github.com/tjisse/sqlite-viewer-janet.git
 cd sqlite-viewer-janet
 bash scripts/build.sh
@@ -49,7 +49,7 @@ Already have the runtime archive? Extract it and run `bin/sqlite-viewer --demo`.
 The executable is independently relocatable: Janet, application bytecode, SQLite,
 native bindings, Jansson, libjwt and all web assets are embedded. There is no
 runtime module directory or installed Janet requirement. Retain `share/` when
-redistributing the archive for its license notices. OpenSSL, glibc and libm remain
+redistributing the archive for its license notices. OpenSSL, libcurl (7.85+), glibc and libm remain
 system libraries: this is a bundled executable, not a fully static libc binary.
 The x86_64 artifact requires glibc 2.38+ and OpenSSL 3.0+, suitable for Fedora
 40+ (use a currently supported Fedora release). It is **not an EL9 binary**.
@@ -85,7 +85,7 @@ dist/bin/sqlite-viewer --seed /absolute/path/sample.sqlite
 
 Seeding refuses to overwrite an existing file. `scripts/test.sh` runs core Janet
 checks and Python integration tests using temporary databases and newly generated
-Ed25519 keys. Tests exercise JWT failures, database grants, session cookies,
+RSA keys. Tests exercise Access JWT failures, prefixed Entra grants, logout,
 origin checks, query restrictions/budgets, escaping, 64-bit integer preservation,
 commit/rollback hooks, views/search/sort/filter/export, and SSE external commits.
 The core suite is a separate build-only Janet executable, not a production
@@ -93,52 +93,111 @@ The core suite is a separate build-only Janet executable, not a production
 directory and verify embedded assets, auth, SQL and subscriptions without modules
 or source files beside it. The entry point handles SIGPIPE so disconnected SSE
 clients cannot terminate the service.
-Tests need a local TCP listener; production does not need Python.
+Tests need local TCP listeners; production does not need Python or the curl executable.
+The HTTPS client is Jurl, pinned in `deps.lock`, with its Janet and native bindings
+embedded. Install the system libcurl library and CA certificate store at runtime.
+Client tests check certificate trust, hostnames, HTTPS-only transport, redirects,
+timeouts, size limits, and key rotation/cache failures against a temporary TLS server.
 
 ## Authentication and authorization
 
-There is no custom JWT cryptography, signing endpoint, password store or implicit
-trust in token-supplied keys. `janet-jwt` verifies signatures using **configured
-public JWKS**, an issuer, an audience, and an explicit algorithm allowlist. It
-checks required expiry and optional not-before claims. The viewer then requires
-a nonempty `sub`, the role `viewer`, and a database alias grant:
+Production uses **Cloudflare Access with Microsoft Entra ID over OIDC**. Entra
+manages role assignments, Cloudflare signs the application JWT, and the viewer
+verifies the `Cf-Access-Jwt-Assertion` header with `janet-jwt`. RS256 is pinned;
+issuer, application audience, expiry and optional not-before are checked. A
+nonempty `sub` and `type: "app"` are required. Plain identity headers, bearer
+tokens and browser cookies are not accepted by the origin. There is no viewer
+password store, signing endpoint, or token-paste form.
+
+The forwarded Entra roles must be an array of strings in `custom.roles`:
 
 ```json
 {
-  "iss": "https://auth.example.com",
-  "aud": "sqlite-viewer",
-  "sub": "alice",
+  "iss": "https://YOUR-TEAM.cloudflareaccess.com",
+  "aud": ["YOUR-ACCESS-APPLICATION-AUD"],
+  "sub": "user-subject",
+  "type": "app",
   "exp": 2000000000,
-  "roles": ["viewer"],
-  "databases": ["Studio"]
+  "custom": {
+    "roles": ["sqlite-viewer.viewer", "sqlite-viewer.db.Studio.read"]
+  }
 }
 ```
 
-`databases: ["*"]` grants all configured databases. Grants apply to all tables in
-that database, including SQL and exports. There is no row/column permission model.
-Treat a database grant as permission to read the entire database, including
-schema. Obtain tokens from your existing identity provider with a dedicated
-audience. The sign-in form accepts such a token and sets an HttpOnly,
-SameSite=Strict cookie; HTTPS enables Secure. API clients can instead send
-`Authorization: Bearer TOKEN`. Tokens never belong in URLs or browser storage.
+| Entra app role value | Permission |
+|---|---|
+| `sqlite-viewer.viewer` | Required to use the viewer |
+| `sqlite-viewer.db.<alias>.read` | Read the exact configured database alias |
+| `sqlite-viewer.db.All.read` | Read all configured databases |
 
-Configure the trusted key file from the provider out of band. Each JWK must have
-`kid` and `alg` metadata supported by janet-jwt; provide **public keys only**.
-Accepted configured algorithms are EdDSA, RS256, PS256, ES256. Startup fails if
-auth configuration is absent or invalid. The app does not fetch token-supplied
-URLs. Restart after updating JWKS; overlap old/new public keys during rotation.
-Short token lifetimes limit revocation delay: there is no online revocation list.
-Streams stop at token expiry; logout clears the browser cookie. A copied token
-remains usable until expiry. A session cookie lasts at most one hour.
+Alias matching is case-sensitive. `All` is reserved and cannot be a database
+alias. Unrelated roles are ignored; missing/malformed roles deny access. The
+viewer role alone grants no database access. Grants cover the entire database,
+including schema, SQL, exports and subscriptions; there are no row/column grants.
+
+### Entra and Cloudflare setup
+
+1. In Entra **App registrations**, select the client ID used by Cloudflare's OIDC
+   connection. Under **App roles**, create the role values above, enable them,
+   and set allowed member types to **Users/Groups**. Define one read role per
+   database alias as needed.
+2. In the corresponding **Enterprise application → Users and groups**, assign
+   each user or group both the viewer role and the desired database roles. Entra
+   emits app role values in the ID token's `roles` claim automatically.
+3. In Cloudflare **Zero Trust → Integrations → Identity providers**, edit the
+   Entra/OIDC provider and add `roles` under **OIDC Claims**. Test the provider;
+   verify all assigned values in `oidc_fields.roles`.
+4. Protect the viewer hostname with a self-hosted Access application. Restrict
+   its Allow policy to the intended Entra provider and users with the viewer
+   role, using an OIDC claim rule. Copy the application's **AUD tag** (not the
+   Entra client ID) into `SV_AUDIENCE`.
+5. Set `SV_ISSUER` to the Cloudflare team URL and `SV_ORIGIN` to the protected
+   public HTTPS origin. Route the origin through Cloudflare Tunnel or a
+   restricted reverse proxy. Keep the viewer on loopback and prevent direct
+   public access to its port; preserve the assertion header, Host and Origin.
+6. Sign in through Access and confirm the Access JWT contains the expected
+   `custom.roles`. Test with a Studio reader and a user lacking its grant.
+
+See [Entra app roles](https://learn.microsoft.com/en-us/entra/identity-platform/howto-add-app-roles-in-apps)
+and [Cloudflare OIDC claims](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/generic-oidc/#custom-oidc-claims).
+Cloudflare can trim custom claims beyond roughly 1 KB; omitted roles deny access.
+Keep role sets small. Full-identity lookup is not implemented.
+
+### Keys and sessions
+
+By default keys are fetched from the configured issuer's
+`/cdn-cgi/access/certs` endpoint using Jurl with certificate/hostname verification,
+HTTPS-only protocols, no redirects, a 3-second connection timeout, a 5-second
+request timeout and a 1 MiB body cap. Fetching runs on a worker thread so it does
+not block requests or subscriptions. Only configured URLs are used, never URLs
+from a token. Startup requires a valid key set. Cached keys refresh on requests
+after one hour and on signature verification failure (including unknown `kid`),
+with at most one attempt per minute. A failed refresh keeps the last valid set;
+verification fails closed once that cache is 24 hours old. Overlap old/new keys
+when rotating externally maintained key files. No keys are persisted by the app.
+
+`SV_JWKS` optionally selects a trusted public JWKS file instead of network fetches;
+it is reread on the same refresh schedule. Every JWK must include `kid`, `alg:
+"RS256"` and a supported public RSA key. This is useful for offline provisioning
+and local tests. Remove this setting to use automatic Cloudflare key fetching.
+
+The viewer's sign-out action redirects to `/cdn-cgi/access/logout`; Cloudflare
+clears/revokes its Access session across applications. Existing origin streams
+stop at JWT expiry; the viewer performs no online revocation checks. A copied
+assertion can still pass origin signature checks until expiry, which is why the
+origin must remain behind Access. Changing Entra assignments requires fresh IdP
+claims; existing Access sessions can retain previous grants until reauthentication.
+Use short session durations appropriate to the deployment.
+See [Access session management](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/).
 
 | Setting | Purpose |
 |---|---|
 | `SV_HOST` | Listen address, default `127.0.0.1` |
 | `SV_PORT` | Port, default `8080` |
-| `SV_ORIGIN` | Exact browser origin, e.g. `https://sqlite.example.com`, without trailing slash |
-| `SV_ISSUER`, `SV_AUDIENCE` | Required trusted token issuer/audience |
-| `SV_JWKS` | Path to public JWKS JSON |
-| `SV_ALGORITHMS` | Comma-separated allowlist, default `EdDSA` |
+| `SV_ORIGIN` | Exact public browser origin, without trailing slash |
+| `SV_ISSUER` | Required `https://TEAM.cloudflareaccess.com` |
+| `SV_AUDIENCE` | Required Cloudflare Access application AUD tag |
+| `SV_JWKS` | Optional externally maintained public JWKS file; default HTTPS fetch |
 | `SV_DATABASES` | Path to database alias/path JSON |
 | `SV_ALLOW_HTTP=1` | Explicit local-only auth testing; requires loopback binding |
 | `SV_DEMO_DB` | Demo database path, used only with `--demo` |
@@ -238,9 +297,9 @@ Package layout:
 
 Installation creates a locked `sqlite-viewer` system account. Config files use
 `%config(noreplace)`, so upgrades preserve edits. Installation **does not start or
-enable** the service before auth is configured. Add `/etc/sqlite-viewer/jwks.json`,
-edit `viewer.env` and `databases.json`, set ownership `root:sqlite-viewer` and mode
-`0640`. To try the packaged database with real authentication:
+enable** the service before auth is configured. Edit `viewer.env` with the Cloudflare issuer, application AUD and public origin,
+and edit `databases.json`. Keep ownership `root:sqlite-viewer` and mode `0640`.
+Keys are fetched automatically; no JWKS file is required. To try the packaged database with real authentication:
 
 ```sh
 sudo -u sqlite-viewer /usr/bin/sqlite-viewer --seed /var/lib/sqlite-viewer/demo.sqlite
@@ -254,7 +313,8 @@ not a personal home. Production runs on loopback behind your HTTPS proxy; set
 `SV_ORIGIN` to that public origin. In nginx, use `proxy_http_version 1.1`,
 `proxy_buffering off`, `proxy_read_timeout 60s`, `client_max_body_size 20k`, and
 preserve `Host`/`Origin`. Limit request rates/connections according to your team.
-The application never trusts forwarded identity headers.
+The application verifies the signed Cloudflare assertion and never trusts plain
+forwarded identity headers.
 
 ## Free RPM repository and publishing
 
@@ -313,7 +373,7 @@ sudo dnf remove sqlite-viewer
 ```
 
 Normal `yum` clients supporting rpm-md work with the same repository, but the
-binary still requires the supported glibc/OpenSSL baseline. This is pull-based
+binary still requires the supported glibc/OpenSSL/libcurl baseline. This is pull-based
 deployment; no GitHub credentials or push agent are needed on target servers.
 Upgrades restart an already-running service. Rollback changes only application
 files: this viewer performs no production schema migrations. Back up configuration
@@ -367,7 +427,7 @@ downgrading restores it; configuration and database contents survive both.
 ## License and provenance
 
 Application code is MIT. Runtime dependencies retain their upstream licenses,
-including libjwt's MPL-2.0, in the package. `deps.lock` records source repositories
+including libjwt's MPL-2.0 and Jurl's Unlicense, in the package. `deps.lock` records source repositories
 and exact commits. The vendored Datastar v1.0.2 browser bundle has SHA256
 `2837d87acf6ee0ba8e4e63765926c25a98d63883b02f88be194a86b81d3fd24a`.
 Its source is [starfederation/datastar v1.0.2](https://github.com/starfederation/datastar/tree/v1.0.2).

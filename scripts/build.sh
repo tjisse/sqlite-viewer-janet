@@ -12,7 +12,7 @@ while read -r name repo revision; do
   if ! git -C "$deps/$name" cat-file -e "$revision^{commit}" 2>/dev/null; then git -C "$deps/$name" fetch origin "$revision"; fi
   git -C "$deps/$name" checkout --quiet "$revision"
   [[ "$(git -C "$deps/$name" rev-parse HEAD)" == "$revision" ]]
-  for license in LICENSE LICENSE.txt COPYING; do
+  for license in LICENSE LICENSE.txt COPYING UNLICENSE; do
     if [[ -f "$deps/$name/$license" ]]; then cp "$deps/$name/$license" "dist/share/licenses/$name-$license"; fi
   done
 done < deps.lock
@@ -27,6 +27,7 @@ cmake --build .build/libjwt -j"$jobs"
 cmake --install .build/libjwt
 modules=$root/.build/modules
 cp -R "$deps/spork/spork" "$modules/"
+cp -R "$deps/jurl/jurl" "$modules/"
 cp -R "$deps/datastar-janet/datastar" "$modules/"
 cp "$deps/datastar-janet/datastar.janet" "$modules/"
 cp "$deps/jayson/src/jayson.janet" "$modules/"

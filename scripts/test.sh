@@ -4,3 +4,4 @@ cd "$(dirname "$0")/.."
 bash scripts/format.sh --check
 .build/jpm/sqlite-viewer-tests
 python3 tests/integration.py
+python3 tests/auth-client.py
