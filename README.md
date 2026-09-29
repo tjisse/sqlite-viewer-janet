@@ -181,10 +181,12 @@ it is reread on the same refresh schedule. Every JWK must include `kid`, `alg:
 "RS256"` and a supported public RSA key. This is useful for offline provisioning
 and local tests. Remove this setting to use automatic Cloudflare key fetching.
 
-The viewer's sign-out action redirects to `/cdn-cgi/access/logout`; Cloudflare
-clears/revokes its Access session across applications. Existing origin streams
-stop at JWT expiry; the viewer performs no online revocation checks. A copied
-assertion can still pass origin signature checks until expiry, which is why the
+The viewer's Sign out form posts to `/logout`, which checks the request Origin and
+redirects to `/cdn-cgi/access/logout`. `Referrer-Policy: same-origin` preserves the
+Origin on same-origin form submissions while withholding referrer URLs from other
+origins. Cloudflare clears/revokes its Access session across applications. Existing
+origin streams stop at JWT expiry; the viewer performs no online revocation checks.
+A copied assertion can still pass origin signature checks until expiry, which is why the
 origin must remain behind Access. Changing Entra assignments requires fresh IdP
 claims; existing Access sessions can retain previous grants until reauthentication.
 Use short session durations appropriate to the deployment.

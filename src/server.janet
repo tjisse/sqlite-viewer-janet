@@ -16,10 +16,12 @@
 (var origin "http://127.0.0.1:8080")
 (var streams 0)
 
+# Keep same-origin form POST Origins available for the strict CSRF check below,
+# while withholding referrer URLs from other origins.
 (defn response [status body &opt type headers]
   @{:status status :body body :headers (merge
                                          @{"Content-Type" (or type "text/html; charset=utf-8") "Cache-Control" "no-store"
-                                           "X-Content-Type-Options" "nosniff" "Referrer-Policy" "no-referrer"
+                                           "X-Content-Type-Options" "nosniff" "Referrer-Policy" "same-origin"
                                            "Content-Security-Policy" "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"}
                                          (or headers @{}))})
 
