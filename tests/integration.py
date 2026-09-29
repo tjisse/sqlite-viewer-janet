@@ -126,6 +126,26 @@ class Viewer(unittest.TestCase):
         self.assertEqual(401, status)
         self.assertIn('Cloudflare Access', body)
         self.assertNotIn('name="token"', body)
+        status, page_headers, signed_in = self.request('/')
+        self.assertEqual(200, status)
+        self.assertEqual('same-origin', page_headers['Referrer-Policy'])
+        class SignOutParser(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.links = []
+                self.forms = []
+
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == 'a' and attrs.get('class') == 'sign-out':
+                    self.links.append(attrs.get('href'))
+                if tag == 'form':
+                    self.forms.append((attrs.get('action'), attrs.get('method')))
+
+        parsed = SignOutParser()
+        parsed.feed(signed_in)
+        self.assertEqual([], parsed.links)
+        self.assertIn(('/logout', 'post'), parsed.forms)
         payload = urllib.parse.urlencode({'token':self.token()})
         self.assertEqual(404, self.request('/session', 'POST', payload, False,
                                           {'Origin':self.origin})[0])
@@ -138,7 +158,10 @@ class Viewer(unittest.TestCase):
         self.assertEqual(303, status)
         self.assertEqual('/cdn-cgi/access/logout', headers['Location'])
         self.assertNotIn('Set-Cookie', headers)
-        self.assertEqual(403, self.request('/logout', 'POST', '', headers={'Origin':'https://evil.test'})[0])
+        for origin in [None, 'null', 'https://evil.test']:
+            headers = {} if origin is None else {'Origin':origin}
+            self.assertEqual(403, self.request('/logout', 'POST', '', headers=headers)[0])
+        self.assertEqual(403, self.request('/logout', headers={'Origin':self.origin})[0])
         self.assertEqual(403,self.request('/query','POST','{"sql":"SELECT 1"}',headers={'Origin':'https://evil.test'})[0])
 
     def test_entra_role_grants(self):
