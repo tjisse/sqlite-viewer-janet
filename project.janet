@@ -19,6 +19,12 @@
      :source [(string deps "/spork/src/json.c")]
      :headers ["deps.lock" "project.janet"])
    (declare-native
+     :name "jurl/native"
+     :source (map |(string deps "/jurl/src/" $ ".c")
+                  ["main" "jurl" "callbacks" "cleanup" "enums" "errors" "getinfo" "mime" "polyfill" "setopt" "util"])
+     :headers ["deps.lock" "project.janet" (string deps "/jurl/src/jurl.h")]
+     :lflags ["-lcurl"])
+   (declare-native
      :name "jwt"
      :source [(string deps "/janet-jwt/src/jwt.c")]
      :headers ["deps.lock" "project.janet" (string prefix "/lib/libjwt.a") (string prefix "/lib/libjansson.a")]
@@ -36,9 +42,12 @@
 (def inputs
   [;source-files "deps.lock" "project.janet"
    (string deps "/janet-sqlexpr/src/sqlexpr.janet")
+   (string deps "/jurl/jurl/init.janet")
    "assets/app.css" "assets/app.js" "assets/datastar.js" "assets/icon.svg"
    (string deps "/sqlite3/query-controls.c")
    ;(mapcat values native-targets)])
 
 (declare-executable :name "sqlite-viewer" :entry "src/main.janet" :deps inputs)
 (declare-executable :name "sqlite-viewer-tests" :entry "tests/core.janet" :deps inputs)
+
+(declare-executable :name "sqlite-viewer-auth-tests" :entry "tests/auth-client.janet" :deps inputs)

@@ -13,8 +13,8 @@ import tempfile
 import time
 import unittest
 import urllib.parse
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives import hashes
 
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = ROOT / 'dist/bin/sqlite-viewer'
@@ -33,17 +33,19 @@ class Viewer(unittest.TestCase):
         cls.database = cls.path / 'demo.sqlite'
         subprocess.run([cls.binary, '--seed', cls.database], cwd=cls.path,
                        check=True, capture_output=True)
-        cls.key = Ed25519PrivateKey.generate()
-        jwks = {'keys': [{'kty':'OKP', 'crv':'Ed25519', 'kid':'test', 'alg':'EdDSA',
-                         'x':b64(cls.key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))}]}
+        cls.key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        public = cls.key.public_key().public_numbers()
+        jwks = {'keys': [{'kty':'RSA', 'kid':'test', 'alg':'RS256',
+                         'n':b64(public.n.to_bytes(256, 'big')), 'e':b64(public.e.to_bytes(3, 'big'))}]}
         (cls.path/'jwks.json').write_text(json.dumps(jwks))
         (cls.path/'databases.json').write_text(json.dumps({'Studio':str(cls.database)}))
         with socket.socket() as sock:
             sock.bind(('127.0.0.1',0)); cls.port = sock.getsockname()[1]
         cls.origin = f'http://127.0.0.1:{cls.port}'
         env = dict(os.environ, JANET_PATH=str(cls.path/'no-modules'), SV_PORT=str(cls.port), SV_HOST='127.0.0.1', SV_ALLOW_HTTP='1',
-                   SV_ORIGIN=cls.origin, SV_ISSUER='https://issuer.test', SV_AUDIENCE='sqlite-viewer',
+                   SV_ORIGIN=cls.origin, SV_ISSUER='https://test.cloudflareaccess.com', SV_AUDIENCE='sqlite-viewer',
                    SV_JWKS=str(cls.path/'jwks.json'), SV_DATABASES=str(cls.path/'databases.json'))
+        cls.env = env
         cls.log = (cls.path/'server.log').open('w+')
         cls.server = subprocess.Popen([cls.binary], cwd=cls.path, env=env, stdout=cls.log, stderr=cls.log)
         for _ in range(100):
@@ -62,15 +64,16 @@ class Viewer(unittest.TestCase):
 
     @classmethod
     def token(cls, **changes):
-        claims = dict(iss='https://issuer.test', aud='sqlite-viewer', sub='test-user',
-                      exp=int(time.time())+300, roles=['viewer'], databases=['Studio'])
+        claims = dict(iss='https://test.cloudflareaccess.com', aud='sqlite-viewer', sub='test-user',
+                      exp=int(time.time())+300, type='app',
+                      custom={'roles':['sqlite-viewer.viewer','sqlite-viewer.db.Studio.read']})
         claims.update(changes)
-        unsigned = b64(json.dumps({'alg':'EdDSA','kid':'test'}).encode())+'.'+b64(json.dumps(claims).encode())
-        return unsigned+'.'+b64(cls.key.sign(unsigned.encode()))
+        unsigned = b64(json.dumps({'alg':'RS256','kid':'test'}).encode())+'.'+b64(json.dumps(claims).encode())
+        return unsigned+'.'+b64(cls.key.sign(unsigned.encode(), padding.PKCS1v15(), hashes.SHA256()))
 
     @classmethod
     def request(cls, path, method='GET', payload=None, authenticated=True, headers=None):
-        hdr = {'Authorization':'Bearer '+cls.token()} if authenticated else {}
+        hdr = {'Cf-Access-Jwt-Assertion':cls.token()} if authenticated else {}
         hdr.update(headers or {})
         conn = http.client.HTTPConnection('127.0.0.1', cls.port, timeout=5)
         conn.request(method,path,body=payload,headers=hdr)
@@ -81,11 +84,36 @@ class Viewer(unittest.TestCase):
     def test_auth_boundary(self):
         self.assertEqual(401,self.request('/?table=customers',authenticated=False)[0])
         for token in [self.token(exp=1),self.token(aud='wrong'),self.token(iss='wrong'),
-                      self.token(roles=[]), self.token(sub=''),self.token()[:-8]+'tampered']:
-            self.assertEqual(401,self.request('/',headers={'Authorization':'Bearer '+token})[0])
-        self.assertEqual(403,self.request('/',headers={'Authorization':'Bearer '+self.token(databases=['Other'])})[0])
+                      self.token(custom={'roles':[]}), self.token(sub=''),self.token()[:-8]+'tampered']:
+            self.assertEqual(401,self.request('/',headers={'Cf-Access-Jwt-Assertion':token})[0])
+        self.assertEqual(403,self.request('/',headers={'Cf-Access-Jwt-Assertion':self.token(custom={'roles':['sqlite-viewer.viewer','sqlite-viewer.db.Other.read']})})[0])
         self.assertEqual(403,self.request('/?db=secret')[0])
         self.assertEqual(403,self.request('/',headers={'Host':'evil.test'})[0])
+
+    def test_startup_rejects_invalid_access_config(self):
+        for changes in [{'SV_ISSUER':'https://evil.test'}, {'SV_AUDIENCE':''},
+                        {'SV_ISSUER':'https://test.cloudflareaccess.com/path'}]:
+            result = subprocess.run([self.binary], cwd=self.path,
+                                    env=dict(self.env, **changes), capture_output=True, timeout=5)
+            self.assertNotEqual(0, result.returncode)
+        aliases = self.path/'reserved.json'
+        aliases.write_text(json.dumps({'All':str(self.database)}))
+        result = subprocess.run([self.binary], cwd=self.path,
+                                env=dict(self.env, SV_DATABASES=str(aliases)), capture_output=True, timeout=5)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(b'reserved', result.stderr)
+
+    def test_streams_stop_at_expiry(self):
+        token = self.token(exp=int(time.time())+2)
+        status, _, body = self.request('/events?table=customers',
+                                      headers={'Cf-Access-Jwt-Assertion':token})
+        self.assertEqual(200, status)
+        self.assertIn('Session expired', body)
+        token = self.token(exp=int(time.time())+2)
+        status, _, body = self.request('/query', 'POST', '{"sql":"SELECT 1"}', headers={
+            'Origin':self.origin, 'Datastar-Request':'true', 'Cf-Access-Jwt-Assertion':token})
+        self.assertEqual(200, status)
+        self.assertIn('Session expired', body)
 
     def test_embedded_assets(self):
         for name in ['app.css', 'app.js', 'datastar.js', 'icon.svg']:
@@ -93,15 +121,47 @@ class Viewer(unittest.TestCase):
             self.assertEqual(200, status)
             self.assertEqual((ROOT/'assets'/name).read_text(), body)
 
-    def test_session_and_csrf(self):
-        payload=urllib.parse.urlencode({'token':self.token()})
-        status,headers,_=self.request('/session','POST',payload,False,{'Origin':self.origin,'Content-Type':'application/x-www-form-urlencoded'})
-        self.assertEqual(303,status)
-        cookie=headers['Set-Cookie']
-        self.assertIn('HttpOnly',cookie); self.assertIn('SameSite=Strict',cookie)
-        self.assertEqual(200,self.request('/?table=customers',authenticated=False,headers={'Cookie':cookie.split(';')[0]})[0])
-        self.assertEqual(403,self.request('/session','POST',payload,False,{'Origin':'https://evil.test'})[0])
+    def test_access_login_logout_and_csrf(self):
+        status, headers, body = self.request('/', authenticated=False)
+        self.assertEqual(401, status)
+        self.assertIn('Cloudflare Access', body)
+        self.assertNotIn('name="token"', body)
+        payload = urllib.parse.urlencode({'token':self.token()})
+        self.assertEqual(404, self.request('/session', 'POST', payload, False,
+                                          {'Origin':self.origin})[0])
+        for headers in [{'Authorization':'Bearer '+self.token()},
+                        {'Cookie':'sv_session='+self.token()},
+                        {'Cookie':'CF_Authorization='+self.token()},
+                        {'Cf-Access-Authenticated-User-Email':'alice@example.com'}]:
+            self.assertEqual(401, self.request('/', authenticated=False, headers=headers)[0])
+        status, headers, _ = self.request('/logout', 'POST', '', headers={'Origin':self.origin})
+        self.assertEqual(303, status)
+        self.assertEqual('/cdn-cgi/access/logout', headers['Location'])
+        self.assertNotIn('Set-Cookie', headers)
+        self.assertEqual(403, self.request('/logout', 'POST', '', headers={'Origin':'https://evil.test'})[0])
         self.assertEqual(403,self.request('/query','POST','{"sql":"SELECT 1"}',headers={'Origin':'https://evil.test'})[0])
+
+    def test_entra_role_grants(self):
+        for custom in [None, {}, {'roles':'sqlite-viewer.viewer'},
+                       {'roles':['sqlite-viewer.viewer', 42]},
+                       {'roles':['viewer','sqlite-viewer.db.Studio.read']}]:
+            self.assertEqual(401, self.request('/', headers={
+                'Cf-Access-Jwt-Assertion':self.token(custom=custom)})[0])
+        self.assertEqual(401, self.request('/', headers={
+            'Cf-Access-Jwt-Assertion':self.token(type='service')})[0])
+        for roles in [['sqlite-viewer.viewer'],
+                      ['sqlite-viewer.viewer', 'sqlite-viewer.db.studio.read'],
+                      ['sqlite-viewer.viewer', 'other.db.Studio.read']]:
+            token = self.token(custom={'roles':roles}, databases=['*'])
+            headers = {'Cf-Access-Jwt-Assertion':token, 'Origin':self.origin}
+            for path, method, payload in [('/', 'GET', None), ('/export?table=customers','GET',None),
+                                          ('/events?table=customers','GET',None),
+                                          ('/query','POST','{"sql":"SELECT 1"}')]:
+                self.assertEqual(403, self.request(path, method, payload, headers=headers)[0])
+        for roles in [['sqlite-viewer.viewer', 'sqlite-viewer.db.All.read'],
+                      ['unrelated.role','sqlite-viewer.viewer','sqlite-viewer.db.Studio.read']]:
+            self.assertEqual(200, self.request('/', headers={
+                'Cf-Access-Jwt-Assertion':self.token(custom={'roles':roles})})[0])
 
     def test_views_search_sort_and_columns(self):
         for tab in ['Data','Schema','Indexes','SQL']:
@@ -163,7 +223,7 @@ class Viewer(unittest.TestCase):
 
     def test_external_writer_reactive_update(self):
         conn=http.client.HTTPConnection('127.0.0.1',self.port,timeout=5)
-        conn.request('GET','/events?table=customers&search=ReactiveProbe',headers={'Authorization':'Bearer '+self.token()})
+        conn.request('GET','/events?table=customers&search=ReactiveProbe',headers={'Cf-Access-Jwt-Assertion':self.token()})
         response=conn.getresponse(); self.assertEqual(200,response.status)
         while b'No rows to show' not in response.readline(): pass
         writer=sqlite3.connect(self.database)
@@ -180,7 +240,7 @@ class Viewer(unittest.TestCase):
         conn=http.client.HTTPConnection('127.0.0.1',self.port,timeout=5)
         payload=json.dumps({'sql':"SELECT name FROM customers WHERE name='LiveSqlProbe'"})
         conn.request('POST','/query?db=Studio',body=payload,headers={
-            'Authorization':'Bearer '+self.token(), 'Origin':self.origin,
+            'Cf-Access-Jwt-Assertion':self.token(), 'Origin':self.origin,
             'Content-Type':'application/json', 'Datastar-Request':'true'})
         response=conn.getresponse(); self.assertEqual(200,response.status)
         while b'No rows to show' not in response.readline(): pass
@@ -194,7 +254,7 @@ class Viewer(unittest.TestCase):
 
     def test_schema_subscription(self):
         conn=http.client.HTTPConnection('127.0.0.1',self.port,timeout=5)
-        conn.request('GET','/events?table=products&tab=Schema',headers={'Authorization':'Bearer '+self.token()})
+        conn.request('GET','/events?table=products&tab=Schema',headers={'Cf-Access-Jwt-Assertion':self.token()})
         response=conn.getresponse(); self.assertEqual(200,response.status)
         while b'primary_key' not in response.readline(): pass
         with sqlite3.connect(self.database) as writer:

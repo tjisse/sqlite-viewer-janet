@@ -86,7 +86,7 @@
   [:span {:id "live" :class "live" :data-heartbeat (os/time)} "● Live"])
 
 (defn expired-status []
-  [:span {:id "live" :class "live expired"} "Session expired · Sign in again"])
+  [:span {:id "live" :class "live expired"} "Session expired · Reload to sign in"])
 
 (defn table-list [database selected]
   (def rows (db/tables database))
@@ -120,13 +120,8 @@
   (shell
     [:main {:class "login"}
      [:div {:class "app-icon"} "▦"] [:h1 "SQLite Viewer"]
-     [:p "Sign in with an access token from your trusted identity provider."]
-     (when message [:p {:class "error" :role "alert"} message])
-     [:form {:method "post" :action "/session"}
-      [:label {:for "token"} "Access token"]
-      [:textarea {:id "token" :name "token" :required true :autocomplete "off" :spellcheck "false"}]
-      [:button {:class "primary"} "Sign in"]]
-     [:small "Your token stays in an HttpOnly session cookie."]]))
+     [:p (or message "Sign in through Cloudflare Access to open this application.")]
+     [:a {:href "/" :class "primary"} "Try again"]]))
 
 (defn- sql-editor [name s]
   [:form {:class "sql-editor"

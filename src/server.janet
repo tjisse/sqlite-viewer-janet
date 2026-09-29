@@ -33,7 +33,7 @@
   (= origin (get-in req [:headers "origin"])))
 
 (defn identity [req]
-  (if demo @{"sub" "demo" "roles" @["viewer"] "databases" @["*"] "exp" (+ (os/time) 3600)}
+  (if demo @{"sub" "demo" "custom" {"roles" @["sqlite-viewer.viewer" "sqlite-viewer.db.All.read"]} "exp" (+ (os/time) 3600)}
     (auth/verify verifier (auth/token req))))
 
 (defn csv-cell [value]
@@ -109,22 +109,12 @@
   (when (and (= method "GET") (index-of path ["/assets/app.css" "/assets/app.js" "/assets/datastar.js" "/assets/icon.svg"]))
     (break (response 200 (assets/files path)
                      (cond (string/has-suffix? ".css" path) "text/css" (string/has-suffix? ".svg" path) "image/svg+xml" "text/javascript"))))
-  (when (= path "/session")
-    (unless (= method "POST") (break (response 405 "Method not allowed" "text/plain")))
-    (unless (csrf? req) (break (response 403 "Origin rejected" "text/plain")))
-    (def form (first (peg/match http/query-string-grammar (body req))))
-    (def token (get form "token"))
-    (def checked (protect (auth/verify verifier token)))
-    (unless (first checked) (break (response 401 (ui/login "The token is invalid, expired, or lacks viewer permission."))))
-    (def cookie (string "sv_session=" token "; HttpOnly; SameSite=Strict; Path=/; Max-Age="
-                        (math/floor (min 3600 (- ((checked 1) "exp") (os/time))))
-                        (if (string/has-prefix? "https://" origin) "; Secure" "")))
-    (break (response 303 "" nil {"Location" "/" "Set-Cookie" cookie})))
+  (when (= path "/session") (break (response 404 "Not found" "text/plain")))
   (when (= path "/logout")
     (unless (and (= method "POST") (csrf? req)) (break (response 403 "Origin rejected" "text/plain")))
-    (break (response 303 "" nil {"Location" "/" "Set-Cookie" "sv_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"})))
+    (break (response 303 "" nil {"Location" "/cdn-cgi/access/logout"})))
   (def checked (protect (identity req)))
-  (unless (first checked) (break (response 401 (ui/login))))
+  (unless (first checked) (break (response 401 (ui/login "Cloudflare Access authentication or viewer permission is missing. Sign in through the protected application URL."))))
   (def claims (checked 1))
   (def allowed (sort (filter |(auth/permits? claims $) (keys databases))))
   (when (empty? allowed) (break (response 403 "No database access" "text/plain")))
@@ -171,7 +161,9 @@
       (put databases "Studio" (db/open "Studio" path)))
     (do (set verifier (auth/configure))
       (def config (json/decode (slurp (os/getenv "SV_DATABASES"))))
-      (eachp [name path] config (put databases name (db/open name path)))))
+      (eachp [name path] config
+        (when (= name "All") (error "Database alias All is reserved for the all-databases role"))
+        (put databases name (db/open name path)))))
   (when (empty? databases) (error "Configure at least one database"))
   (ev/go (fn [] (while true
                   (each database (values databases) (protect (watch/poll! (database :watch))))

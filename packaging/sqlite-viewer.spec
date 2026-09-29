@@ -4,13 +4,15 @@ Name: sqlite-viewer
 Version: 0.2.0
 Release: 1
 Summary: Reactive read-only SQLite browser built in Janet
-License: MIT AND MPL-2.0
+License: MIT AND MPL-2.0 AND Unlicense
 URL: https://github.com/tjisse/sqlite-viewer-janet
 Source0: sqlite-viewer-0.2.0-runtime.tar.gz
 BuildArch: x86_64
 Requires: glibc >= 2.38
 Requires: openssl-libs >= 3.0
 Requires: systemd
+Requires: libcurl >= 7.85.0
+Requires: ca-certificates
 Requires(pre): systemd
 Requires(pre): shadow-utils
 Requires(post): systemd
@@ -49,7 +51,7 @@ getent passwd sqlite-viewer >/dev/null || useradd --system --gid sqlite-viewer -
 
 %post
 systemctl daemon-reload >/dev/null 2>&1 || :
-# Do not start automatically: the administrator must configure trusted keys.
+# Do not start automatically: the administrator must configure Cloudflare Access.
 
 %preun
 if [ "$1" -eq 0 ]; then
